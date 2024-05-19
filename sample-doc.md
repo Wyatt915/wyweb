@@ -76,11 +76,13 @@ void wolfram(uint8_t* world, const uint8_t rule)
 
 ## Links and images
 
-Here is a [link](wyweb.site) in a paragraph.
+Here is a [link](http://wyweb.site) in a paragraph.
 
 Here is an image ![image](wyweb.png)
 
-Here is a video ![video](wyweb.webm)
+Here is an image ![image](thishasnofileext)
+
+Here is a video ![video](bbb.webm)
 
 ## Text Elements
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer feugiat nunc at nulla tempor tristique. Vestibulum ante
