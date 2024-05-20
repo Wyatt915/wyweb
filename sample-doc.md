@@ -80,9 +80,11 @@ Here is a [link](http://wyweb.site) in a paragraph.
 
 Here is an image ![image](wyweb.png "My image")
 
-Here is an image ![image](thishasnofileext)
+Here is an image ![The filename is wrong!](thishasnofileext)
 
 Here is a video ![video](bbb.webm)
+
+Here is some audio ![audio](wyweb.mp3)
 
 ## Text Elements
 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Integer feugiat nunc at nulla tempor tristique. Vestibulum ante

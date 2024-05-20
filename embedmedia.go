@@ -3,21 +3,33 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
 )
 
-// Create new Kinds: Media, Audio, and Video. Audio and Video. Media is the base type embedded by both Audio and Video.
+type MediaType int
+
+const (
+	MediaAudio = iota
+	MediaVideo
+)
+
+type MediaInfo struct {
+	ext         string
+	Destination []byte
+}
 
 type Media struct {
 	ast.BaseInline
-	URLset [][]byte
+	info   MediaInfo
+	medium MediaType
 }
 
 var KindMedia = ast.NewNodeKind("Media")
@@ -26,123 +38,109 @@ func (n *Media) Kind() ast.NodeKind {
 	return KindMedia
 }
 
-type Video struct {
-	Media
-}
-
-type Audio struct {
-	Media
-}
-
 // Dump implements Node.Dump.
 func (n *Media) Dump(source []byte, level int) {
 	ast.DumpHelper(n, source, level, nil, nil)
 }
 
-var KindVideo = ast.NewNodeKind("Video")
-var KindAudio = ast.NewNodeKind("Audio")
-
-func (n *Video) Kind() ast.NodeKind {
-	return KindVideo
-}
-func NewVideo(url [][]byte) *Video {
-	return &Video{
-		Media: Media{URLset: url},
+func NewMedia(i MediaInfo, t MediaType) *Media {
+	return &Media{
+		info:   i,
+		medium: t,
 	}
 }
-
-func (n *Audio) Kind() ast.NodeKind {
-	return KindAudio
-}
-func NewAudio(url [][]byte) *Audio {
-	return &Audio{
-		Media: Media{URLset: url},
-	}
-}
-
-// Create Parser
-
-type mediaParser struct{}
-
-// NewMediaParser returns a new mediaParser.
-func NewMediaParser() parser.InlineParser {
-	return &mediaParser{}
-}
-
-// Trigger returns characters that trigger this parser.
-func (p *mediaParser) Trigger() []byte {
-	return []byte{'!', '['}
-}
-
-// Parse parses a media element.
-func (p *mediaParser) Parse(parent ast.Node, block text.Reader, pc parser.Context) ast.Node {
-	line, _ := block.PeekLine()
-	pattern := regexp.MustCompile(`!\[(.*)\]\((.*)\)`)
-
-	indecies := pattern.FindAllSubmatchIndex(line, -1)
-	matches := pattern.FindAllSubmatch(line, -1)
-
-	VideoExt := []string{".webm", ".mp4", ".mkv", ".ogv"}
-	AudioExt := []string{".mp3", ".ogg", ".wav", ".flac"}
-
-	if indecies == nil {
-		return nil
-	}
-
-	for _, match := range matches {
-		dotidx := bytes.LastIndexByte(match[2], '.')
-		if dotidx >= 0 {
-			ext := match[2][dotidx:]
-			if slices.Contains(VideoExt, string(ext)) {
-				fmt.Printf("%q is a video\n", match[0])
-			}
-			if slices.Contains(AudioExt, string(ext)) {
-				fmt.Printf("%q is a audio\n", match[0])
-			}
-		}
-		block.Advance(len(match[0]))
-	}
-
-	//return NewMedia(url)
-	return ast.NewLink()
-}
-
-// RegisterFuncs registers the parser with the Goldmark parser.
-//func (p *mediaParser) RegisterFuncs(reg parser.InlineParserFuncRegisterer) {
-//	reg.Register(p.Trigger(), p)
-//}
-
-// Create Renderer
 
 // var contextKeySnippet = parser.NewContextKey()
-//
-// type mediaTransformer struct{}
-//
-//	func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
-//		//var buf bytes.Buffer
-//		ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-//			if entering && n.Kind() == ast.KindImage {
-//				//var imagenode bytes.Buffer
-//				img := n.(*ast.Image)
-//				dotidx := bytes.LastIndexByte(img.Destination, '.')
-//				if dotidx >= 0 {
-//					ext := img.Destination[dotidx:]
-//					fmt.Printf("%s:\t%s\n", string(img.Destination), string(ext))
-//				}
-//			}
-//			return ast.WalkContinue, nil
-//		})
-//	}
+type mediaTransformer struct{}
+
+func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
+	//var buf bytes.Buffer
+	VideoExt := []string{"webm", "mp4", "mkv", "ogv"}
+	AudioExt := []string{"mp3", "ogg", "wav", "flac"}
+	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering && n.Kind() == ast.KindImage {
+			//var imagenode bytes.Buffer
+			img := n.(*ast.Image)
+			dotidx := bytes.LastIndexByte(img.Destination, '.')
+			if dotidx >= 0 {
+				ext := string(img.Destination[dotidx+1:])
+				if slices.Contains(VideoExt, ext) {
+					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(MediaInfo{ext, img.Destination}, MediaVideo))
+				} else if slices.Contains(AudioExt, ext) {
+					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(MediaInfo{ext, img.Destination}, MediaAudio))
+				}
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+}
+
+// Create Renderer
+// VideoHTMLRenderer is a renderer for video nodes.
+type MediaHTMLRenderer struct{}
+
+// NewMediaHTMLRenderer returns a new MediaHTMLRenderer.
+func NewMediaHTMLRenderer() renderer.NodeRenderer {
+	return &MediaHTMLRenderer{}
+}
+
+// RegisterFuncs registers the renderer with the Goldmark renderer.
+func (r *MediaHTMLRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(KindMedia, r.renderMedia)
+}
+
+func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	n, ok := node.(*Media)
+	if !ok {
+		return ast.WalkContinue, nil
+	}
+
+	var tagOpen string
+	var tagClose string
+	var mime string
+
+	switch n.medium {
+	case MediaVideo:
+		tagOpen = `<video controls>`
+		tagClose = `<\video>`
+		mime = "video"
+	case MediaAudio:
+		tagOpen = `<audio controls>`
+		tagClose = `<\audio>`
+		mime = "audio"
+	}
+
+	mime = strings.Join([]string{mime, n.info.ext}, "/")
+	sourceTag := []string{
+		`<source src="`,
+		string(n.info.Destination),
+		`" type="`,
+		mime,
+		`" />`,
+	}
+
+	if entering {
+		_, _ = w.WriteString(tagOpen)
+		_, _ = w.WriteString(strings.Join(sourceTag, " "))
+		_, _ = w.WriteString(tagClose)
+	}
+
+	return ast.WalkContinue, nil
+}
+
 type mediaExtension struct{}
 
 func (e *mediaExtension) Extend(m goldmark.Markdown) {
-	//p := int(^uint(0) >> 1) // Lowest priority
+	p := int(^uint(0) >> 1) // Lowest priority
+	fmt.Println(p)
 	m.Parser().AddOptions(
-		//parser.WithASTTransformers(
-		//	util.Prioritized(mediaTransformer, p),
-		//),
-		parser.WithInlineParsers(
-			util.Prioritized(NewMediaParser(), 900),
+		parser.WithASTTransformers(
+			util.Prioritized(mediaTransformer{}, p),
+		),
+	)
+	m.Renderer().AddOptions(
+		renderer.WithNodeRenderers(
+			util.Prioritized(NewMediaHTMLRenderer(), p),
 		),
 	)
 }
