@@ -78,7 +78,7 @@ void wolfram(uint8_t* world, const uint8_t rule)
 
 Here is a [link](http://wyweb.site) in a paragraph.
 
-Here is an image ![image](wyweb.png)
+Here is an image ![image](wyweb.png "My image")
 
 Here is an image ![image](thishasnofileext)
 

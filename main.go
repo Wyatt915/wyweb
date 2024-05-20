@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	//"fmt"
 	"os"
 
 	//"gopkg.in/yaml.v3"
@@ -17,44 +16,48 @@ import (
 )
 
 func check(e error) {
-    if e != nil {
-        panic(e)
-    }
+	if e != nil {
+		panic(e)
+	}
 }
 
 func main() {
-    source, err := os.ReadFile("./sample-doc.md")
-    check(err)
+	var err error
+	source, err := os.ReadFile("./sample-doc.md")
+	check(err)
 
-    md := goldmark.New(
-        goldmark.WithExtensions(
-            EmbedExtension(),
-            extension.GFM,
-            highlighting.NewHighlighting(
+	md := goldmark.New(
+		goldmark.WithExtensions(
+			MediaExtension(),
+			extension.GFM,
+			highlighting.NewHighlighting(
 				highlighting.WithStyle("monokai"),
 				highlighting.WithFormatOptions(
 					chromahtml.WithLineNumbers(true),
 				),
 			),
-        ),
-        goldmark.WithParserOptions(
-            parser.WithAutoHeadingID(),
-        ),
-        goldmark.WithRendererOptions(
-            html.WithXHTML(),
-            html.WithUnsafe(),
-        ),
-    )
-    var buf bytes.Buffer
-    if err := md.Convert([]byte(source), &buf); err != nil {
-        panic(err)
-    }
-    f, err := os.Create("test.html")
-    defer f.Close()
+		),
+		goldmark.WithParserOptions(
+			parser.WithAutoHeadingID(),
+		),
+		goldmark.WithRendererOptions(
+			html.WithXHTML(),
+			html.WithUnsafe(),
+		),
+	)
+	var buf bytes.Buffer
+	if err = md.Convert([]byte(source), &buf); err != nil {
+		panic(err)
+	}
+	f, err := os.Create("test.html")
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
 
-    w := bufio.NewWriter(f)
+	w := bufio.NewWriter(f)
 
-    w.WriteString("<html><body>")
-    w.WriteString(buf.String())
-    w.WriteString("</body></html>")
+	w.WriteString("<html><body>")
+	w.WriteString(buf.String())
+	w.WriteString("</body></html>")
 }
