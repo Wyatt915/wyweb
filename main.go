@@ -1,8 +1,12 @@
 package main
 
 import (
-	"bufio"
+	"fmt"
+	"net"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	//"gopkg.in/yaml.v3"
 	"bytes"
@@ -21,11 +25,7 @@ func check(e error) {
 	}
 }
 
-func main() {
-	var err error
-	source, err := os.ReadFile("./sample-doc.md")
-	check(err)
-
+func mdConvert(text []byte) (bytes.Buffer, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			MediaExtension(),
@@ -47,18 +47,67 @@ func main() {
 		),
 	)
 	var buf bytes.Buffer
-	if err = md.Convert([]byte(source), &buf); err != nil {
+	var err error
+
+	if err = md.Convert(text, &buf); err != nil {
 		panic(err)
 	}
-	f, err := os.Create("test.html")
+	return buf, err
+}
+
+func buildHead() (bytes.Buffer, error) {
+	return *bytes.NewBufferString("<head></head>"), nil
+}
+
+func buildDocument(text []byte) (bytes.Buffer, error) {
+	var buf bytes.Buffer
+	buf.WriteString("<!DOCTYPE html>\n</html>")
+	head, _ := buildHead()
+	buf.Write(head.Bytes())
+	buf.WriteString("<body>")
+	body, _ := mdConvert(text)
+	buf.Write(body.Bytes())
+	buf.WriteString("</body>\n</html>\n")
+	return buf, nil
+}
+
+type MyHandler struct {
+	http.Handler
+}
+
+func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	fmt.Println("================================================================================")
+	os.Chdir(req.Header["Document-Root"][0])
+	source, err := os.ReadFile(req.Header["Request-Uri"][0])
 	if err != nil {
-		panic(err)
+		w.WriteHeader(404)
+		w.Write([]byte(
+			`
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+</body>
+</html>
+		`))
+		return
 	}
-	defer f.Close()
+	buf, _ := buildDocument(source)
+	w.Write(buf.Bytes())
+	fmt.Println("================================================================================")
+}
 
-	w := bufio.NewWriter(f)
-
-	w.WriteString("<html><body>")
-	w.WriteString(buf.String())
-	w.WriteString("</body></html>")
+func main() {
+	socket, err := net.Listen("unix", "/tmp/wyweb.sock")
+	os.Chmod("/tmp/wyweb.sock", 0777)
+	check(err)
+	// Cleanup the sockfile.
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		os.Remove("/tmp/wyweb.sock")
+		os.Exit(1)
+	}()
+	http.Serve(socket, MyHandler{})
 }
