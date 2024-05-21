@@ -29,6 +29,7 @@ func main() {
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			MediaExtension(),
+			LinkRewriteExtensionExtension(),
 			extension.GFM,
 			highlighting.NewHighlighting(
 				highlighting.WithStyle("monokai"),
@@ -41,7 +42,7 @@ func main() {
 			parser.WithAutoHeadingID(),
 		),
 		goldmark.WithRendererOptions(
-			html.WithXHTML(),
+			//html.WithXHTML(),
 			html.WithUnsafe(),
 		),
 	)

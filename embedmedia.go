@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -64,10 +63,17 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 			dotidx := bytes.LastIndexByte(img.Destination, '.')
 			if dotidx >= 0 {
 				ext := string(img.Destination[dotidx+1:])
+				isMedia := false
+				var flavor MediaType
 				if slices.Contains(VideoExt, ext) {
-					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(MediaInfo{ext, img.Destination}, MediaVideo))
+					flavor = MediaVideo
+					isMedia = true
 				} else if slices.Contains(AudioExt, ext) {
-					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(MediaInfo{ext, img.Destination}, MediaAudio))
+					flavor = MediaAudio
+					isMedia = true
+				}
+				if isMedia {
+					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(MediaInfo{ext, img.Destination}, flavor))
 				}
 			}
 		}
@@ -76,7 +82,7 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 }
 
 // Create Renderer
-// VideoHTMLRenderer is a renderer for video nodes.
+// MediaHTMLRenderer is a renderer for video nodes.
 type MediaHTMLRenderer struct{}
 
 // NewMediaHTMLRenderer returns a new MediaHTMLRenderer.
@@ -102,11 +108,11 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 	switch n.medium {
 	case MediaVideo:
 		tagOpen = `<video controls>`
-		tagClose = `<\video>`
+		tagClose = `</video>`
 		mime = "video"
 	case MediaAudio:
 		tagOpen = `<audio controls>`
-		tagClose = `<\audio>`
+		tagClose = `</audio>`
 		mime = "audio"
 	}
 
@@ -121,7 +127,7 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 
 	if entering {
 		_, _ = w.WriteString(tagOpen)
-		_, _ = w.WriteString(strings.Join(sourceTag, " "))
+		_, _ = w.WriteString(strings.Join(sourceTag, ""))
 		_, _ = w.WriteString(tagClose)
 	}
 
@@ -132,7 +138,6 @@ type mediaExtension struct{}
 
 func (e *mediaExtension) Extend(m goldmark.Markdown) {
 	p := int(^uint(0) >> 1) // Lowest priority
-	fmt.Println(p)
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
 			util.Prioritized(mediaTransformer{}, p),

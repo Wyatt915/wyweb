@@ -77,6 +77,7 @@ void wolfram(uint8_t* world, const uint8_t rule)
 ## Links and images
 
 Here is a [link](http://wyweb.site) in a paragraph.
+[This link](-----------) has an invalid url.
 
 Here is an image ![image](wyweb.png "My image")
 
