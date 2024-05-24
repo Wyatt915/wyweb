@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 
 	"github.com/yuin/goldmark"
@@ -13,11 +14,18 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-func rewriteURL(url []byte) ([]byte, error) {
+func rewriteURL(url []byte, subdir string) ([]byte, error) {
 	re := regexp.MustCompile(`^((http|ftp|https)://)?([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?`)
 	_, err := os.Stat(string(url))
 	if err == nil {
-		return []byte("LocalLink"), nil
+		return url, nil
+	}
+	fmt.Println("Subdir: ", subdir)
+	path := filepath.Join(subdir, string(url))
+	fmt.Println("Path: ", path)
+	_, err = os.Stat(path)
+	if err == nil {
+		return []byte(filepath.Join("/", path)), nil
 	}
 	if re.Match(url) {
 		return url, nil
@@ -25,7 +33,9 @@ func rewriteURL(url []byte) ([]byte, error) {
 	return url, errors.New("unknown URL Destination")
 }
 
-type linkRewriteTransformer struct{}
+type linkRewriteTransformer struct {
+	subdir string
+}
 
 func (r linkRewriteTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
 	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -38,7 +48,7 @@ func (r linkRewriteTransformer) Transform(node *ast.Document, reader text.Reader
 				url = &n.(*ast.Image).Destination
 			}
 			var err error
-			*url, err = rewriteURL(*url)
+			*url, err = rewriteURL(*url, r.subdir)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, string(*url), err.Error())
 			}
@@ -47,17 +57,19 @@ func (r linkRewriteTransformer) Transform(node *ast.Document, reader text.Reader
 	})
 }
 
-type linkRewriteExtension struct{}
+type linkRewriteExtension struct {
+	subdir string
+}
 
 func (e *linkRewriteExtension) Extend(m goldmark.Markdown) {
 	p := 0
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
-			util.Prioritized(linkRewriteTransformer{}, p),
+			util.Prioritized(linkRewriteTransformer{e.subdir}, p),
 		),
 	)
 }
 
-func LinkRewriteExtension() goldmark.Extender {
-	return &linkRewriteExtension{}
+func LinkRewriteExtension(subdir string) goldmark.Extender {
+	return &linkRewriteExtension{subdir}
 }

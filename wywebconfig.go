@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,46 +115,6 @@ func (m WyWebPage) GetType() string {
 	return "page"
 }
 
-//func (m *WyWebRoot) UnmarshalYAML(node *yaml.Node) error {
-//	type rawWyWebRoot WyWebRoot
-//	var aux rawWyWebRoot
-//	if err := node.Decode(&aux); err != nil {
-//		return err
-//	}
-//	*m = WyWebRoot(aux)
-//	return nil
-//}
-//
-//func (m *WyWebListing) UnmarshalYAML(node *yaml.Node) error {
-//	type rawWyWebListing WyWebListing
-//	var aux rawWyWebListing
-//	if err := node.Decode(&aux); err != nil {
-//		return err
-//	}
-//	*m = WyWebListing(aux)
-//	return nil
-//}
-//
-//func (m *WyWebPost) UnmarshalYAML(node *yaml.Node) error {
-//	type rawWyWebPost WyWebPost
-//	var aux rawWyWebPost
-//	if err := node.Decode(&aux); err != nil {
-//		return err
-//	}
-//	*m = WyWebPost(aux)
-//	return nil
-//}
-//
-//func (m *WyWebGallery) UnmarshalYAML(node *yaml.Node) error {
-//	type rawWyWebGallery WyWebGallery
-//	var aux rawWyWebGallery
-//	if err := node.Decode(&aux); err != nil {
-//		return err
-//	}
-//	*m = WyWebGallery(aux)
-//	return nil
-//}
-
 type Document struct {
 	Data WyWebMeta
 }
@@ -195,26 +154,13 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 func readWyWeb(dir string) (WyWebMeta, error) {
 	filename := filepath.Join(dir, "wyweb")
 	wywebData, err := os.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
 	var meta Document
 	err = yaml.Unmarshal(wywebData, &meta)
 	if err != nil {
 		return nil, err
-	}
-	switch data := meta.Data.(type) {
-	case *WyWebRoot:
-		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
-		fmt.Printf("Parsed Root:\n%s\n", string(dataJSON))
-	case *WyWebListing:
-		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
-		fmt.Printf("Parsed Listing:\n%s\n", string(dataJSON))
-	case *WyWebPost:
-		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
-		fmt.Printf("Parsed Post:\n%s\n", string(dataJSON))
-	case *WyWebGallery:
-		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
-		fmt.Printf("Parsed Gallery:\n%s\n", string(dataJSON))
-	default:
-		return nil, fmt.Errorf("unknown type:\n%#v", data)
 	}
 	return meta.Data, nil
 }

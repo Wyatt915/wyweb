@@ -29,11 +29,11 @@ func check(e error) {
 	}
 }
 
-func mdConvert(text []byte) (bytes.Buffer, error) {
+func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			EmbedMedia(),
-			LinkRewriteExtension(),
+			LinkRewriteExtension(subdir),
 			extension.GFM,
 			highlighting.NewHighlighting(
 				highlighting.WithStyle("monokai"),
@@ -46,7 +46,7 @@ func mdConvert(text []byte) (bytes.Buffer, error) {
 			parser.WithAutoHeadingID(),
 		),
 		goldmark.WithRendererOptions(
-			//html.WithXHTML(),
+			html.WithXHTML(),
 			html.WithUnsafe(),
 		),
 	)
@@ -63,13 +63,13 @@ func buildHead() (bytes.Buffer, error) {
 	return *bytes.NewBufferString("<head></head>"), nil
 }
 
-func buildDocument(text []byte) (bytes.Buffer, error) {
+func buildDocument(text []byte, subdir string) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n</html>")
 	head, _ := buildHead()
 	buf.Write(head.Bytes())
 	buf.WriteString("<body>")
-	body, _ := mdConvert(text)
+	body, _ := mdConvert(text, subdir)
 	buf.Write(body.Bytes())
 	buf.WriteString("</body>\n</html>\n")
 	return buf, nil
@@ -127,7 +127,7 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		case *WyWebPost:
 			mdtext, err := os.ReadFile(filepath.Join(object, t.Index))
 			check(err)
-			temp, _ := mdConvert(mdtext)
+			temp, _ := mdConvert(mdtext, object)
 			source = temp.Bytes()
 		//case *WyWebGallery:
 		default:
@@ -146,7 +146,7 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		`))
 		return
 	}
-	buf, _ := buildDocument(source)
+	buf, _ := buildDocument(source, object)
 	w.Write(buf.Bytes())
 }
 
