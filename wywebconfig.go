@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -64,79 +65,19 @@ type WyWebPage struct {
 // TODO: Use type composition with the yaml inline tag to include WyWebPage in all of the following.
 
 type WyWebListing struct {
-	Title        string                     `yaml:"title,omitempty"`
-	Author       string                     `yaml:"author,omitempty"`
-	CopyrightMsg string                     `yaml:"copyright_msg,omitempty"`
-	Date         time.Time                  `yaml:"date,omitempty"`
-	Location     string                     `yaml:"location,omitempty"`
-	ParentPath   string                     `yaml:"parent_path,omitempty"`
-	Scripts      map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
-	Styles       map[string]WWHeaderInclude `yaml:"styles,omitempty"`
-	Include      struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"include,omitempty"`
-	Exclude struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"exclude,omitempty"`
-	NavLinks struct {
-		Next WWNavLink `yaml:"next,omitempty"`
-		Prev WWNavLink `yaml:"prev,omitempty"`
-		Up   WWNavLink `yaml:"up,omitempty"`
-	} `yaml:"nav_links,omitempty"`
+	WyWebPage   `yaml:",inline"`
 	Description string `yaml:"description,omitempty"`
 }
 
 type WyWebPost struct {
-	Index        string                     `yaml:"index,omitempty"`
-	Tags         []string                   `yaml:"tags,omitempty"`
-	Updated      time.Time                  `yaml:"updated,omitempty"`
-	Date         time.Time                  `yaml:"date,omitempty"`
-	Title        string                     `yaml:"title,omitempty"`
-	Author       string                     `yaml:"author,omitempty"`
-	CopyrightMsg string                     `yaml:"copyright_msg,omitempty"`
-	Location     string                     `yaml:"location,omitempty"`
-	ParentPath   string                     `yaml:"parent_path,omitempty"`
-	Scripts      map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
-	Styles       map[string]WWHeaderInclude `yaml:"styles,omitempty"`
-	Include      struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"include,omitempty"`
-	Exclude struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"exclude,omitempty"`
-	NavLinks struct {
-		Next WWNavLink `yaml:"next,omitempty"`
-		Prev WWNavLink `yaml:"prev,omitempty"`
-		Up   WWNavLink `yaml:"up,omitempty"`
-	} `yaml:"nav_links,omitempty"`
+	Index     string    `yaml:"index,omitempty"`
+	Tags      []string  `yaml:"tags,omitempty"`
+	Updated   time.Time `yaml:"updated,omitempty"`
+	WyWebPage `yaml:",inline"`
 }
 
 type WyWebGallery struct {
-	Title        string                     `yaml:"title,omitempty"`
-	Author       string                     `yaml:"author,omitempty"`
-	CopyrightMsg string                     `yaml:"copyright_msg,omitempty"`
-	Date         time.Time                  `yaml:"date,omitempty"`
-	Location     string                     `yaml:"location,omitempty"`
-	ParentPath   string                     `yaml:"parent_path,omitempty"`
-	Scripts      map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
-	Styles       map[string]WWHeaderInclude `yaml:"styles,omitempty"`
-	Include      struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"include,omitempty"`
-	Exclude struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"exclude,omitempty"`
-	NavLinks struct {
-		Next WWNavLink `yaml:"next,omitempty"`
-		Prev WWNavLink `yaml:"prev,omitempty"`
-		Up   WWNavLink `yaml:"up,omitempty"`
-	} `yaml:"nav_links,omitempty"`
+	WyWebPage    `yaml:",inline"`
 	Galleryitems []struct {
 		Addenda     string   `yaml:"addenda,omitempty"`
 		Alt         string   `yaml:"alt,omitempty"`
@@ -169,6 +110,10 @@ func (m WyWebPost) GetType() string {
 
 func (m WyWebGallery) GetType() string {
 	return "gallery"
+}
+
+func (m WyWebPage) GetType() string {
+	return "page"
 }
 
 //func (m *WyWebRoot) UnmarshalYAML(node *yaml.Node) error {
@@ -212,7 +157,7 @@ func (m WyWebGallery) GetType() string {
 //}
 
 type Document struct {
-	Data interface{}
+	Data WyWebMeta
 }
 
 func (d *Document) UnmarshalYAML(node *yaml.Node) error {
@@ -247,25 +192,29 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func readWyWeb(dir string) {
+func readWyWeb(dir string) (WyWebMeta, error) {
 	filename := filepath.Join(dir, "wyweb")
 	wywebData, err := os.ReadFile(filename)
 	var meta Document
-	fmt.Println(string(wywebData))
 	err = yaml.Unmarshal(wywebData, &meta)
 	if err != nil {
-		fmt.Printf("Error unmarshalling metadata: %v\n", err)
+		return nil, err
 	}
 	switch data := meta.Data.(type) {
 	case *WyWebRoot:
-		fmt.Printf("Parsed Root:\n%#v\n", *data)
+		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
+		fmt.Printf("Parsed Root:\n%s\n", string(dataJSON))
 	case *WyWebListing:
-		fmt.Printf("Parsed Listing:\n%+v\n", *data)
+		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
+		fmt.Printf("Parsed Listing:\n%s\n", string(dataJSON))
 	case *WyWebPost:
-		fmt.Printf("Parsed Post:\n%#v\n", *data)
+		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
+		fmt.Printf("Parsed Post:\n%s\n", string(dataJSON))
 	case *WyWebGallery:
-		fmt.Printf("Parsed Gallery:\n%#v\n", *data)
+		dataJSON, _ := json.MarshalIndent(*data, "", "  ")
+		fmt.Printf("Parsed Gallery:\n%s\n", string(dataJSON))
 	default:
-		fmt.Printf("Unknown type:\n%#v\n", data)
+		return nil, fmt.Errorf("unknown type:\n%#v", data)
 	}
+	return meta.Data, nil
 }

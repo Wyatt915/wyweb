@@ -78,10 +78,26 @@ func buildDocument(text []byte) (bytes.Buffer, error) {
 func directoryListing(dir string) ([]byte, error) {
 	var buf bytes.Buffer
 	filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
-
+		if path == dir {
+			return nil
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		fmt.Println(path, info.Name())
+		wwFileName := filepath.Join(path, "wyweb")
+		_, e := os.Stat(wwFileName)
+		if e != nil {
+			return nil
+		}
+		meta, e := readWyWeb(path)
+		if e != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", e)
+			return nil
+		}
 		buf.WriteString(`<a href="`)
-		buf.WriteString(info.Name())
-		buf.WriteString(`">Page</a><br />`)
+		buf.WriteString(path)
+		buf.WriteString(fmt.Sprintf(`">%s</a><br />`, meta.(*WyWebPost).Title))
 		return nil
 	})
 	return buf.Bytes(), nil
@@ -92,21 +108,31 @@ type MyHandler struct {
 }
 
 func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	fmt.Println("================================================================================")
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
-	fmt.Println(raw)
 	object, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 	fmt.Println(object)
-	file, err := os.Stat(object)
+	_, err := os.Stat(filepath.Join(object, "wyweb"))
+	isWyWeb := err == nil
+
 	var source []byte
-	if err == nil && file.IsDir() {
-		readWyWeb(object)
-		source, _ = directoryListing(object)
-	} else if err == nil {
-		source, err = os.ReadFile(object)
+	if isWyWeb {
+		meta, err := readWyWeb(object)
 		check(err)
+		switch t := meta.(type) {
+		//case *WyWebRoot:
+		case *WyWebListing:
+			source, _ = directoryListing(object)
+		case *WyWebPost:
+			mdtext, err := os.ReadFile(filepath.Join(object, t.Index))
+			check(err)
+			temp, _ := mdConvert(mdtext)
+			source = temp.Bytes()
+		//case *WyWebGallery:
+		default:
+			fmt.Println("whoopsie")
+		}
 	} else {
 		w.WriteHeader(404)
 		w.Write([]byte(
@@ -122,7 +148,6 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	buf, _ := buildDocument(source)
 	w.Write(buf.Bytes())
-	fmt.Println("================================================================================")
 }
 
 func main() {
