@@ -2,10 +2,13 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 
 	//"gopkg.in/yaml.v3"
@@ -21,6 +24,7 @@ import (
 
 func check(e error) {
 	if e != nil {
+		fmt.Println(e.Error())
 		panic(e)
 	}
 }
@@ -28,8 +32,8 @@ func check(e error) {
 func mdConvert(text []byte) (bytes.Buffer, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(
-			MediaExtension(),
-			LinkRewriteExtensionExtension(),
+			EmbedMedia(),
+			LinkRewriteExtension(),
 			extension.GFM,
 			highlighting.NewHighlighting(
 				highlighting.WithStyle("monokai"),
@@ -71,15 +75,39 @@ func buildDocument(text []byte) (bytes.Buffer, error) {
 	return buf, nil
 }
 
+func directoryListing(dir string) ([]byte, error) {
+	var buf bytes.Buffer
+	filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
+
+		buf.WriteString(`<a href="`)
+		buf.WriteString(info.Name())
+		buf.WriteString(`">Page</a><br />`)
+		return nil
+	})
+	return buf.Bytes(), nil
+}
+
 type MyHandler struct {
 	http.Handler
 }
 
 func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fmt.Println("================================================================================")
-	os.Chdir(req.Header["Document-Root"][0])
-	source, err := os.ReadFile(req.Header["Request-Uri"][0])
-	if err != nil {
+	docRoot := req.Header["Document-Root"][0]
+	os.Chdir(docRoot)
+	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
+	fmt.Println(raw)
+	object, _ := filepath.Rel(".", raw) // remove that pesky leading slash
+	fmt.Println(object)
+	file, err := os.Stat(object)
+	var source []byte
+	if err == nil && file.IsDir() {
+		readWyWeb(object)
+		source, _ = directoryListing(object)
+	} else if err == nil {
+		source, err = os.ReadFile(object)
+		check(err)
+	} else {
 		w.WriteHeader(404)
 		w.Write([]byte(
 			`

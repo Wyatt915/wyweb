@@ -58,6 +58,6 @@ func (e *linkRewriteExtension) Extend(m goldmark.Markdown) {
 	)
 }
 
-func LinkRewriteExtensionExtension() goldmark.Extender {
+func LinkRewriteExtension() goldmark.Extender {
 	return &linkRewriteExtension{}
 }

@@ -134,9 +134,9 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 	return ast.WalkContinue, nil
 }
 
-type mediaExtension struct{}
+type mediaEmbed struct{}
 
-func (e *mediaExtension) Extend(m goldmark.Markdown) {
+func (e *mediaEmbed) Extend(m goldmark.Markdown) {
 	p := int(^uint(0) >> 1) // Lowest priority
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
@@ -150,6 +150,6 @@ func (e *mediaExtension) Extend(m goldmark.Markdown) {
 	)
 }
 
-func MediaExtension() goldmark.Extender {
-	return &mediaExtension{}
+func EmbedMedia() goldmark.Extender {
+	return &mediaEmbed{}
 }
