@@ -1,13 +1,16 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -20,6 +23,8 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+
+	"wyweb.site/wyweb/extensions"
 )
 
 func check(e error) {
@@ -32,8 +37,8 @@ func check(e error) {
 func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(
-			EmbedMedia(),
-			LinkRewriteExtension(subdir),
+			extensions.EmbedMedia(),
+			extensions.LinkRewrite(subdir),
 			extension.GFM,
 			highlighting.NewHighlighting(
 				highlighting.WithStyle("monokai"),
@@ -59,15 +64,33 @@ func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	return buf, err
 }
 
-func buildHead() (bytes.Buffer, error) {
-	return *bytes.NewBufferString("<head></head>"), nil
+type link struct {
+	Rel   string `xml:"rel,attr,omitempty"`
+	Href  string `xml:"href,attr,omitempty"`
+	Title string `xml:"title,attr,omitempty"`
+	Type  string `xml:"type,attr,omitempty"`
+}
+
+type head struct {
+	Title string `xml:"title,omitempty"`
+	Link  []link `xml:"link,omitempty"`
+}
+
+func buildHead() ([]byte, error) {
+	data := head{
+		Title: "Hello, World!",
+		Link: []link{
+			{Type: "text/css", Href: "/res/styles/master.css"},
+		},
+	}
+	return xml.Marshal(data)
 }
 
 func buildDocument(text []byte, subdir string) (bytes.Buffer, error) {
 	var buf bytes.Buffer
-	buf.WriteString("<!DOCTYPE html>\n</html>")
-	head, _ := buildHead()
-	buf.Write(head.Bytes())
+	buf.WriteString("<!DOCTYPE html>\n<html>")
+	headXML, _ := buildHead()
+	buf.Write(headXML)
 	buf.WriteString("<body>")
 	body, _ := mdConvert(text, subdir)
 	buf.Write(body.Bytes())
@@ -151,8 +174,17 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func main() {
-	socket, err := net.Listen("unix", "/tmp/wyweb.sock")
-	os.Chmod("/tmp/wyweb.sock", 0777)
+	sockfile := "/tmp/wyweb.sock"
+	socket, err := net.Listen("unix", sockfile)
+	check(err)
+	grp, err := user.LookupGroup("www-data")
+	check(err)
+	gid, err := strconv.Atoi(grp.Gid)
+	if err = os.Chown(sockfile, -1, gid); err != nil {
+		fmt.Printf("Failed to change ownership: %v\n", err)
+		return
+	}
+	os.Chmod("/tmp/wyweb.sock", 0660)
 	check(err)
 	// Cleanup the sockfile.
 	c := make(chan os.Signal, 1)

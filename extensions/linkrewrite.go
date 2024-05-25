@@ -1,4 +1,4 @@
-package main
+package extensions
 
 import (
 	"errors"
@@ -14,20 +14,19 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
+var urlRegex = regexp.MustCompile(`^((http|ftp|https)://)?([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?`)
+
 func rewriteURL(url []byte, subdir string) ([]byte, error) {
-	re := regexp.MustCompile(`^((http|ftp|https)://)?([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?`)
 	_, err := os.Stat(string(url))
 	if err == nil {
 		return url, nil
 	}
-	fmt.Println("Subdir: ", subdir)
 	path := filepath.Join(subdir, string(url))
-	fmt.Println("Path: ", path)
 	_, err = os.Stat(path)
 	if err == nil {
 		return []byte(filepath.Join("/", path)), nil
 	}
-	if re.Match(url) {
+	if urlRegex.Match(url) {
 		return url, nil
 	}
 	return url, errors.New("unknown URL Destination")
@@ -57,11 +56,11 @@ func (r linkRewriteTransformer) Transform(node *ast.Document, reader text.Reader
 	})
 }
 
-type linkRewriteExtension struct {
+type linkRewrite struct {
 	subdir string
 }
 
-func (e *linkRewriteExtension) Extend(m goldmark.Markdown) {
+func (e *linkRewrite) Extend(m goldmark.Markdown) {
 	p := 0
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
@@ -70,6 +69,6 @@ func (e *linkRewriteExtension) Extend(m goldmark.Markdown) {
 	)
 }
 
-func LinkRewriteExtension(subdir string) goldmark.Extender {
-	return &linkRewriteExtension{subdir}
+func LinkRewrite(subdir string) goldmark.Extender {
+	return &linkRewrite{subdir}
 }
