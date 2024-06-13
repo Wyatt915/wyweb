@@ -21,12 +21,12 @@ type WWNavLink struct {
 }
 
 type WyWebRoot struct {
-	Author       string `yaml:"author,omitempty"`
-	CopyrightMsg string `yaml:"copyright_msg,omitempty"`
-	DomainName   string `yaml:"domain_name,omitempty"`
-	Location     string `yaml:"location,omitempty"`
-	Meta         string `yaml:"meta,omitempty"`
-	Available    struct {
+	Author     string `yaml:"author,omitempty"`
+	Copyright  string `yaml:"copyright,omitempty"`
+	DomainName string `yaml:"domain_name,omitempty"`
+	Path       string `yaml:"path,omitempty"`
+	Meta       string `yaml:"meta,omitempty"`
+	Available  struct {
 		Scripts map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
 		Styles  map[string]WWHeaderInclude `yaml:"styles,omitempty"`
 	} `yaml:"available,omitempty"`
@@ -38,15 +38,15 @@ type WyWebRoot struct {
 }
 
 type WyWebPage struct {
-	Author       string                     `yaml:"author,omitempty"`
-	CopyrightMsg string                     `yaml:"copyright_msg,omitempty"`
-	Date         string                     `yaml:"date,omitempty"`
-	Location     string                     `yaml:"location,omitempty"`
-	ParentPath   string                     `yaml:"parent_path,omitempty"`
-	Scripts      map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
-	Styles       map[string]WWHeaderInclude `yaml:"styles,omitempty"`
-	Title        string                     `yaml:"title,omitempty"`
-	Include      struct {
+	Author     string                     `yaml:"author,omitempty"`
+	Copyright  string                     `yaml:"copyright,omitempty"`
+	Date       string                     `yaml:"date,omitempty"`
+	Path       string                     `yaml:"path,omitempty"`
+	ParentPath string                     `yaml:"parent_path,omitempty"`
+	Scripts    map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
+	Styles     map[string]WWHeaderInclude `yaml:"styles,omitempty"`
+	Title      string                     `yaml:"title,omitempty"`
+	Include    struct {
 		Scripts []string `yaml:"scripts,omitempty"`
 		Styles  []string `yaml:"styles,omitempty"`
 	} `yaml:"include,omitempty"`
@@ -93,22 +93,68 @@ type WyWebGallery struct {
 
 type WyWebMeta interface {
 	GetType() string
+	GetPath() string
+}
+
+// //////////////////////////////////////////////////////////////////////////////
+//
+//	WyWebRoot methods
+//
+// //////////////////////////////////////////////////////////////////////////////
+func (m WyWebRoot) GetPath() string {
+	return m.Path
 }
 
 func (m WyWebRoot) GetType() string {
 	return "root"
 }
 
+// //////////////////////////////////////////////////////////////////////////////
+//
+//	WyWebListing methods
+//
+// //////////////////////////////////////////////////////////////////////////////
+func (m WyWebListing) GetPath() string {
+	return m.Path
+}
+
 func (m WyWebListing) GetType() string {
 	return "listing"
+}
+
+// //////////////////////////////////////////////////////////////////////////////
+//
+//	WyWebPost methods
+//
+// //////////////////////////////////////////////////////////////////////////////
+func (m WyWebPost) GetPath() string {
+	return m.Path
 }
 
 func (m WyWebPost) GetType() string {
 	return "post"
 }
 
+// //////////////////////////////////////////////////////////////////////////////
+//
+//	WyWebGallery methods
+//
+// //////////////////////////////////////////////////////////////////////////////
+func (m WyWebGallery) GetPath() string {
+	return m.Path
+}
+
 func (m WyWebGallery) GetType() string {
 	return "gallery"
+}
+
+// //////////////////////////////////////////////////////////////////////////////
+//
+//	WyWebPage methods
+//
+// //////////////////////////////////////////////////////////////////////////////
+func (m WyWebPage) GetPath() string {
+	return m.Path
 }
 
 func (m WyWebPage) GetType() string {
@@ -152,6 +198,13 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 }
 
 func readWyWeb(dir string) (WyWebMeta, error) {
+	stat, err := os.Stat(dir)
+	if err != nil {
+		return nil, err
+	}
+	if !stat.IsDir() {
+		return nil, fmt.Errorf("not a directory: %s", dir)
+	}
 	filename := filepath.Join(dir, "wyweb")
 	wywebData, err := os.ReadFile(filename)
 	if err != nil {

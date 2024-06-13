@@ -128,11 +128,17 @@ func directoryListing(dir string) ([]byte, error) {
 
 type MyHandler struct {
 	http.Handler
+	tree *ConfigTree
 }
 
 func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
+	if r.tree == nil {
+		var e error
+		r.tree, e = BuildConfigTree(".", "DOMAIN")
+		check(e)
+	}
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
 	object, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 	fmt.Println(object)
@@ -141,6 +147,24 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	var source []byte
 	if isWyWeb {
+		_, data, err := r.tree.search(object)
+		if err != nil {
+			fmt.Printf("%+v\n", *data)
+		}
+	} else {
+		w.WriteHeader(404)
+		w.Write([]byte(
+			`
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+</body>
+</html>
+		`))
+		return
+	}
+	if true {
 		meta, err := readWyWeb(object)
 		check(err)
 		switch t := meta.(type) {
@@ -156,18 +180,6 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		default:
 			fmt.Println("whoopsie")
 		}
-	} else {
-		w.WriteHeader(404)
-		w.Write([]byte(
-			`
-<html>
-<head><title>404 Not Found</title></head>
-<body>
-<center><h1>404 Not Found</h1></center>
-</body>
-</html>
-		`))
-		return
 	}
 	buf, _ := buildDocument(source, object)
 	w.Write(buf.Bytes())
