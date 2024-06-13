@@ -104,8 +104,10 @@ func (node *configNode) resolve() error {
 		}
 		copy(node.Resolved.Styles, temp.Default.Styles)
 		copy(node.Resolved.Scripts, temp.Default.Scripts)
-	default:
-		temp := meta.(*WyWebPage)
+		return nil
+	case WyWebPage, WyWebPost, WyWebListing, WyWebGallery:
+		tempPtr, _ := AsPage(&meta)
+		temp := *tempPtr
 		if node.Parent.Resolved == nil {
 			node.Parent.resolve()
 		}
@@ -137,7 +139,8 @@ func (node *configNode) resolve() error {
 			}
 		}
 		for styleName, styleValue := range temp.Styles {
-			if node.Tree.Styles[styleName] != (WWHeaderInclude{}) {
+			_, ok := node.Tree.Styles[styleName]
+			if !ok {
 				fmt.Printf("WARN: In configuration %s, the style %s is already defined. The new definition will be ignored.\n", node.Path, styleName)
 			} else {
 				node.Tree.Styles[styleName] = styleValue
@@ -157,7 +160,8 @@ func (node *configNode) resolve() error {
 			}
 		}
 		for scriptName, scriptValue := range temp.Scripts {
-			if node.Tree.Scripts[scriptName] != (WWHeaderInclude{}) {
+			_, ok := node.Tree.Scripts[scriptName]
+			if !ok {
 				fmt.Printf("WARN: In configuration %s, the script %s is already defined. The new definition will be ignored.\n", node.Path, scriptName)
 			} else {
 				node.Tree.Scripts[scriptName] = scriptValue
@@ -209,8 +213,10 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	out.Root = new(configNode)
 	out.Root.Path = documentRoot
 	out.Root.Data = new(WyWebMeta)
+	out.Root.Children = make(map[string]*configNode)
 	meta, err := readWyWeb(documentRoot)
 	if err != nil {
+		fmt.Printf("Document root: %s\n", documentRoot)
 		return nil, err
 	}
 	if meta.GetType() != "root" {

@@ -96,6 +96,28 @@ type WyWebMeta interface {
 	GetPath() string
 }
 
+func AsPage(meta *WyWebMeta) (*WyWebPage, error) {
+	var out *WyWebPage
+	switch (*meta).(type) {
+	case WyWebRoot:
+		return nil, fmt.Errorf("cannot represent WyWebRoot as a page type")
+	case WyWebPage:
+		out = (*meta).(*WyWebPage)
+		return out, nil
+	case WyWebListing:
+		out = (*meta).(*WyWebPage)
+		return out, nil
+	case WyWebPost:
+		out = (*meta).(*WyWebPage)
+		return out, nil
+	case WyWebGallery:
+		out = (*meta).(*WyWebPage)
+		return out, nil
+	default:
+		return nil, fmt.Errorf("unknown error representing wyweb page")
+	}
+}
+
 // //////////////////////////////////////////////////////////////////////////////
 //
 //	WyWebRoot methods
@@ -207,6 +229,7 @@ func readWyWeb(dir string) (WyWebMeta, error) {
 	}
 	filename := filepath.Join(dir, "wyweb")
 	wywebData, err := os.ReadFile(filename)
+	fmt.Println(string(wywebData))
 	if err != nil {
 		return nil, err
 	}
