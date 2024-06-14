@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,32 +16,33 @@ type Heritable struct {
 	Author     string
 	Copyright  string
 	DomainName string
-	Meta       string
+	Meta       []string
 	Styles     []string
 	Scripts    []string
 }
 
 type configNode struct {
-	Path     string
+	Children map[string]*configNode
 	Parent   *configNode
 	Data     *WyWebMeta
-	Children map[string]*configNode
 	Tree     *ConfigTree
 	Resolved *Heritable
+	Path     string
 }
 
 func newConfigNode() configNode {
 	var out configNode
 	out.Children = make(map[string]*configNode)
+	out.Resolved = nil
 	return out
 }
 
 type ConfigTree struct {
-	mu      sync.Mutex
-	Domain  string
 	Root    *configNode
 	Scripts map[string]WWHeaderInclude
 	Styles  map[string]WWHeaderInclude
+	Domain  string
+	mu      sync.Mutex
 }
 
 func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
@@ -75,26 +77,56 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
 	if parent.Children[directory] != nil {
 		return parent.Children[directory], nil
 	}
-	result := newConfigNode()
-	result.Path = (*cfg).GetPath()
-	result.Parent = parent
-	result.Tree = tree
-	result.Data = cfg
+	result := configNode{
+		Path:     (*cfg).GetPath(),
+		Parent:   parent,
+		Data:     cfg,
+		Children: make(map[string]*configNode),
+		Tree:     tree,
+		Resolved: nil,
+	}
 	parent.Children[directory] = &result
 	result.resolve()
 	return &result, nil
+}
+
+// includeExclude resolves which includables (styles or scripts) will be used on the page.
+// local - the new includables of the cueent node
+// include - the in
+func includeExclude(local []string, include []string, exclude []string) ([]string, error) {
+	result := make([]string, 0)
+	for _, name := range local {
+		if slices.Contains(exclude, name) {
+			log.Printf("WARN: The locally defined %s, is already defined and set to be excluded. The new definition will be ignored.\n", name)
+		} else if slices.Contains(include, name) {
+			log.Printf("WARN: The locally defined %s, is already defined. The new definition will be ignored.\n", name)
+		} else {
+			result = append(result, name)
+		}
+	}
+	for _, name := range include {
+		exists := slices.Contains(local, name)
+		excluded := slices.Contains(exclude, name)
+		if !exists && !excluded {
+			result = append(result, name)
+		}
+	}
+	return result, nil
 }
 
 func (node *configNode) resolve() error {
 	if node.Resolved != nil {
 		return nil
 	}
-	node.Resolved = new(Heritable)
-	meta := *node.Data
-	switch meta.(type) {
-	case WyWebRoot:
-		temp := meta.(*WyWebRoot)
-		*node.Resolved = Heritable{
+	meta := node.Data
+	if meta == nil {
+		return nil
+	}
+	fmt.Println(reflect.TypeOf(meta))
+	switch (*meta).(type) {
+	case *WyWebRoot:
+		temp := (*meta).(*WyWebRoot)
+		node.Resolved = &Heritable{
 			Author:     temp.Author,
 			Copyright:  temp.Copyright,
 			DomainName: temp.DomainName,
@@ -105,68 +137,80 @@ func (node *configNode) resolve() error {
 		copy(node.Resolved.Styles, temp.Default.Styles)
 		copy(node.Resolved.Scripts, temp.Default.Scripts)
 		return nil
-	case WyWebPage, WyWebPost, WyWebListing, WyWebGallery:
-		tempPtr, _ := AsPage(&meta)
-		temp := *tempPtr
+	case *WyWebPost, *WyWebListing, *WyWebGallery:
 		if node.Parent.Resolved == nil {
 			node.Parent.resolve()
 		}
-		*node.Resolved = Heritable{
+		//var author string
+		//var copyright string
+		head := (*meta).GetHeadData()
+		page := (*meta).GetPageData()
+		node.Resolved = &Heritable{
 			Author:     node.Parent.Resolved.Author,
 			Copyright:  node.Parent.Resolved.Copyright,
 			DomainName: node.Parent.Resolved.DomainName,
 			Meta:       node.Parent.Resolved.Meta,
-			Styles:     make([]string, 0),
-			Scripts:    make([]string, 0),
+			//Styles:     make([]string, 0),
+			//Scripts:    make([]string, 0),
 		}
-		if !reflect.ValueOf(temp.Author).IsZero() {
-			node.Resolved.Author = temp.Author
+		if !reflect.ValueOf(page.Author).IsZero() {
+			node.Resolved.Author = page.Author
 		}
-		if !reflect.ValueOf(temp.Copyright).IsZero() {
-			node.Resolved.Copyright = temp.Copyright
+		if !reflect.ValueOf(page.Copyright).IsZero() {
+			node.Resolved.Copyright = page.Copyright
 		}
-		for _, style := range node.Parent.Resolved.Styles {
-			excluded := slices.Contains(temp.Exclude.Styles, style)
-			present := slices.Contains(node.Resolved.Styles, style)
-			if !excluded && !present {
-				node.Resolved.Styles = append(node.Resolved.Styles, style)
-			}
-		}
-		for _, style := range temp.Include.Styles {
-			present := slices.Contains(node.Resolved.Styles, style)
-			if !present {
-				node.Resolved.Styles = append(node.Resolved.Styles, style)
-			}
-		}
-		for styleName, styleValue := range temp.Styles {
+		//for _, style := range node.Parent.Resolved.Styles {
+		//	excluded := slices.Contains(temp.Exclude.Styles, style)
+		//	present := slices.Contains(node.Resolved.Styles, style)
+		//	if !excluded && !present {
+		//		node.Resolved.Styles = append(node.Resolved.Styles, style)
+		//	}
+		//}
+		//for _, style := range temp.Include.Styles {
+		//	present := slices.Contains(node.Resolved.Styles, style)
+		//	if !present {
+		//		node.Resolved.Styles = append(node.Resolved.Styles, style)
+		//	}
+		//}
+		localStyles := make([]string, 0)
+		localScripts := make([]string, 0)
+		for styleName, styleValue := range head.Styles {
 			_, ok := node.Tree.Styles[styleName]
 			if !ok {
 				fmt.Printf("WARN: In configuration %s, the style %s is already defined. The new definition will be ignored.\n", node.Path, styleName)
 			} else {
 				node.Tree.Styles[styleName] = styleValue
+				localStyles = append(localStyles, styleName)
 			}
 		}
-		for _, script := range node.Parent.Resolved.Scripts {
-			excluded := slices.Contains(temp.Exclude.Scripts, script)
-			present := slices.Contains(node.Resolved.Scripts, script)
-			if !excluded && !present {
-				node.Resolved.Scripts = append(node.Resolved.Scripts, script)
-			}
-		}
-		for _, script := range temp.Include.Scripts {
-			present := slices.Contains(node.Resolved.Scripts, script)
-			if !present {
-				node.Resolved.Scripts = append(node.Resolved.Scripts, script)
-			}
-		}
-		for scriptName, scriptValue := range temp.Scripts {
+		styleIncludes := ConcatUnique(head.Include.Styles, node.Parent.Resolved.Styles)
+		node.Resolved.Styles, _ = includeExclude(localStyles, styleIncludes, head.Exclude.Styles)
+		//for _, script := range node.Parent.Resolved.Scripts {
+		//	excluded := slices.Contains(temp.Exclude.Scripts, script)
+		//	present := slices.Contains(node.Resolved.Scripts, script)
+		//	if !excluded && !present {
+		//		node.Resolved.Scripts = append(node.Resolved.Scripts, script)
+		//	}
+		//}
+		//for _, script := range temp.Include.Scripts {
+		//	present := slices.Contains(node.Resolved.Scripts, script)
+		//	if !present {
+		//		node.Resolved.Scripts = append(node.Resolved.Scripts, script)
+		//	}
+		//}
+		for scriptName, scriptValue := range head.Scripts {
 			_, ok := node.Tree.Scripts[scriptName]
 			if !ok {
 				fmt.Printf("WARN: In configuration %s, the script %s is already defined. The new definition will be ignored.\n", node.Path, scriptName)
 			} else {
 				node.Tree.Scripts[scriptName] = scriptValue
+				localScripts = append(localScripts, scriptName)
 			}
 		}
+		scriptIncludes := ConcatUnique(head.Include.Scripts, node.Parent.Resolved.Scripts)
+		node.Resolved.Scripts, _ = includeExclude(localScripts, scriptIncludes, head.Exclude.Scripts)
+	default:
+		fmt.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
 	}
 	return nil
 }
@@ -191,45 +235,57 @@ func (node *configNode) growTree(dir string, tree *ConfigTree) error {
 			fmt.Fprintf(os.Stderr, "%v\n", e)
 			return nil
 		}
-		child := newConfigNode()
-		child.Path = path
-		child.Parent = node
-		child.Data = &meta
+		child := configNode{
+			Path:     path,
+			Parent:   node,
+			Data:     &meta,
+			Children: make(map[string]*configNode),
+			Tree:     tree,
+			Resolved: nil,
+		}
 		node.Children[filepath.Base(path)] = &child
 		child.resolve()
+		//child, _ := tree.RegisterConfig(meta)
 		child.growTree(path, tree)
 		return nil
 	})
-
+	fmt.Printf("New child node:\n%+v\n", node)
 	return status
 }
 
 func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
-	var out ConfigTree
 	var err error
-	out.Domain = domain
-	out.Styles = make(map[string]WWHeaderInclude)
-	out.Scripts = make(map[string]WWHeaderInclude)
-	out.Root = new(configNode)
-	out.Root.Path = documentRoot
-	out.Root.Data = new(WyWebMeta)
-	out.Root.Children = make(map[string]*configNode)
+	rootnode := configNode{
+		Path:     documentRoot,
+		Parent:   nil,
+		Data:     nil,
+		Children: make(map[string]*configNode),
+		Tree:     nil,
+		Resolved: nil,
+	}
+	out := ConfigTree{
+		Domain:  domain,
+		Root:    &rootnode,
+		Scripts: make(map[string]WWHeaderInclude),
+		Styles:  make(map[string]WWHeaderInclude),
+	}
+	rootnode.Tree = &out
 	meta, err := readWyWeb(documentRoot)
 	if err != nil {
 		fmt.Printf("Document root: %s\n", documentRoot)
 		return nil, err
 	}
-	if meta.GetType() != "root" {
+	if (meta).GetType() != "root" {
 		return nil, fmt.Errorf("the wyweb file located at %s must be of type root", documentRoot)
 	}
-	for k, v := range meta.(*WyWebRoot).Available.Styles {
+	for k, v := range (meta).(*WyWebRoot).Available.Styles {
 		out.Styles[k] = v
 	}
-	for k, v := range meta.(*WyWebRoot).Available.Scripts {
+	for k, v := range (meta).(*WyWebRoot).Available.Scripts {
 		out.Scripts[k] = v
 	}
-	out.Root.Data = &meta
-	out.Root.growTree(documentRoot, &out)
+	rootnode.Data = &meta
+	rootnode.growTree(documentRoot, &out)
 	return &out, nil
 }
 
@@ -247,6 +303,7 @@ func (tree *ConfigTree) search(path string) (*WyWebMeta, *Heritable, error) {
 		}
 		node = child
 	}
+	fmt.Printf("End: %s | %s", directory, thisPath[len(thisPath)-1])
 	// there are previously undiscovered directories that need to be filled in
 	if directory != thisPath[len(thisPath)-1] {
 		return nil, nil, fmt.Errorf("not found")

@@ -148,8 +148,10 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var source []byte
 	if isWyWeb {
 		_, data, err := r.tree.search(object)
-		if err != nil {
-			fmt.Printf("%+v\n", *data)
+		if err == nil {
+			fmt.Printf("\n%+v\n", data)
+		} else {
+			fmt.Printf("%+v\n", err)
 		}
 	} else {
 		w.WriteHeader(404)
