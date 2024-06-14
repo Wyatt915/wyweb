@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -76,24 +77,33 @@ type head struct {
 	Link  []link `xml:"link,omitempty"`
 }
 
-func buildHead() ([]byte, error) {
-	data := head{
-		Title: "Hello, World!",
-		Link: []link{
-			{Type: "text/css", Href: "/res/styles/master.css"},
-		},
+func buildHead(metadata HTMLHeadData) ([]byte, error) {
+	links := make([]link, 0)
+	for _, style := range metadata.Styles {
+		switch style.(type) {
+		case URLResource:
+			links = append(links, link{Rel: "stylesheet", Href: (style.(URLResource)).string})
+			//case RawResource:
+		default:
+			continue
+		}
 	}
-	return xml.Marshal(data)
+	data := head{
+		Title: metadata.Title,
+		Link:  links,
+	}
+	meta := []byte(strings.Join(metadata.Meta, "\n"))
+	other, err := xml.Marshal(data)
+	return slices.Concat(meta, other), err
 }
 
-func buildDocument(text []byte, subdir string) (bytes.Buffer, error) {
+func buildDocument(bodyHTML []byte, head HTMLHeadData) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n<html>")
-	headXML, _ := buildHead()
+	headXML, _ := buildHead(head)
 	buf.Write(headXML)
 	buf.WriteString("<body>")
-	body, _ := mdConvert(text, subdir)
-	buf.Write(body.Bytes())
+	buf.Write(bodyHTML)
 	buf.WriteString("</body>\n</html>\n")
 	return buf, nil
 }
@@ -140,20 +150,13 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		check(e)
 	}
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
-	object, _ := filepath.Rel(".", raw) // remove that pesky leading slash
-	fmt.Println(object)
-	_, err := os.Stat(filepath.Join(object, "wyweb"))
+	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
+	fmt.Println(path)
+	_, err := os.Stat(filepath.Join(path, "wyweb"))
 	isWyWeb := err == nil
 
 	var source []byte
-	if isWyWeb {
-		_, data, err := r.tree.search(object)
-		if err == nil {
-			fmt.Printf("\n%+v\n", data)
-		} else {
-			fmt.Printf("%+v\n", err)
-		}
-	} else {
+	if !isWyWeb {
 		w.WriteHeader(404)
 		w.Write([]byte(
 			`
@@ -166,24 +169,22 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		`))
 		return
 	}
-	if true {
-		meta, err := readWyWeb(object)
+	meta, resolved, err := r.tree.search(path)
+	check(err)
+	switch t := (*meta).(type) {
+	//case *WyWebRoot:
+	case *WyWebListing:
+		source, _ = directoryListing(path)
+	case *WyWebPost:
+		mdtext, err := os.ReadFile(filepath.Join(path, t.Index))
 		check(err)
-		switch t := meta.(type) {
-		//case *WyWebRoot:
-		case *WyWebListing:
-			source, _ = directoryListing(object)
-		case *WyWebPost:
-			mdtext, err := os.ReadFile(filepath.Join(object, t.Index))
-			check(err)
-			temp, _ := mdConvert(mdtext, object)
-			source = temp.Bytes()
-		//case *WyWebGallery:
-		default:
-			fmt.Println("whoopsie")
-		}
+		temp, _ := mdConvert(mdtext, path)
+		source = temp.Bytes()
+	//case *WyWebGallery:
+	default:
+		fmt.Println("whoopsie")
 	}
-	buf, _ := buildDocument(source, object)
+	buf, _ := buildDocument(source, *r.tree.GetHeadData(meta, resolved))
 	w.Write(buf.Bytes())
 }
 

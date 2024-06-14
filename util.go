@@ -27,6 +27,7 @@ func NearestCommonAncestor(pathA []string, pathB []string) ([]string, error) {
 	return result, status
 }
 
+// let B = {b ∈ sliceB | b ∉ sliceA} then sliceA ∪ B is equivalent to ConcatUnique(sliceA, sliceB)
 func ConcatUnique[T comparable](sliceA []T, sliceB []T) []T {
 	result := make([]T, len(sliceA))
 	copy(result, sliceA)

@@ -10,11 +10,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type WWHeaderInclude struct {
-	Method string `yaml:"method,omitempty"`
-	Value  string `yaml:"value,omitempty"`
-}
-
 type WWNavLink struct {
 	Path string `yaml:"path,omitempty"`
 	Text string `yaml:"text,omitempty"`
@@ -34,46 +29,37 @@ type PageData struct {
 	} `yaml:"nav_links,omitempty"`
 }
 
+type Resource struct {
+	Type   string `yaml:"type,omitempty"`
+	Method string `yaml:"method,omitempty"`
+	Value  string `yaml:"value,omitempty"`
+}
+
 type HeadData struct {
-	Meta    []string                   `yaml:"meta,omitempty"`
-	Scripts map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
-	Styles  map[string]WWHeaderInclude `yaml:"styles,omitempty"`
-	Include struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"include,omitempty"`
-	Exclude struct {
-		Scripts []string `yaml:"scripts,omitempty"`
-		Styles  []string `yaml:"styles,omitempty"`
-	} `yaml:"exclude,omitempty"`
+	Meta      []string            `yaml:"meta,omitempty"`
+	Resources map[string]Resource `yaml:"resources,omitempty"`
+	Include   []string            `yaml:"include,omitempty"`
+	Exclude   []string            `yaml:"exclude,omitempty"`
 }
 
 type WyWebRoot struct {
 	DomainName string `yaml:"domain_name,omitempty"`
-	Available  struct {
-		Scripts map[string]WWHeaderInclude `yaml:"scripts,omitempty"`
-		Styles  map[string]WWHeaderInclude `yaml:"styles,omitempty"`
-	} `yaml:"available,omitempty"`
-	Default struct {
+	Default    struct {
 		Author    string   `yaml:"author,omitempty"`
 		Copyright string   `yaml:"copyright,omitempty"`
 		Meta      []string `yaml:"meta,omitempty"`
-		Scripts   []string `yaml:"scripts,omitempty"`
-		Styles    []string `yaml:"styles,omitempty"`
+		Resources []string `yaml:"resources,omitempty"`
 	} `yaml:"default,omitempty"`
 	Always struct {
 		Author    string   `yaml:"author,omitempty"`
 		Copyright string   `yaml:"copyright,omitempty"`
 		Meta      []string `yaml:"meta,omitempty"`
-		Scripts   []string `yaml:"scripts,omitempty"`
-		Styles    []string `yaml:"styles,omitempty"`
+		Resources []string `yaml:"resources,omitempty"`
 	} `yaml:"always,omitempty"`
 	Index    string `yaml:"index,omitempty"`
 	HeadData `yaml:",inline"`
 	PageData `yaml:",inline"`
 }
-
-// TODO: Use type composition with the yaml inline tag to include WyWebPage in all of the following.
 
 type WyWebListing struct {
 	HeadData    `yaml:",inline"`
@@ -114,44 +100,6 @@ type WyWebMeta interface {
 	GetHeadData() *HeadData
 	GetPageData() *PageData
 }
-
-//func AsPage(meta *WyWebMeta) (*WyWebPage, error) {
-//	switch (*meta).(type) {
-//	case *WyWebRoot:
-//		return nil, fmt.Errorf("cannot represent WyWebRoot as a page type")
-//	case *WyWebPage:
-//		return (*meta).(*WyWebPage), nil
-//	case *WyWebPost, *WyWebListing, *WyWebGallery:
-//		out := &WyWebPage{
-//			Author:     (*meta).Author,
-//			Copyright:  (*meta).Copyright,
-//			Date:       (*meta).Date,
-//			Path:       (*meta).Path,
-//			ParentPath: (*meta).ParentPath,
-//			Scripts:    make(map[string]WWHeaderInclude),
-//			Styles:     make(map[string]WWHeaderInclude),
-//			Title:      (*meta).Title,
-//			Include: struct {
-//				Styles  []string
-//				Scripts []string
-//			}{
-//				Styles:  make([]string, len(meta.Include.Styles)),
-//				Scripts: make([]string, len(meta.Include.Scripts)),
-//			},
-//			Exclude: struct {
-//				Styles  []string
-//				Scripts []string
-//			}{
-//				Styles:  make([]string, len(meta.Exclude.Styles)),
-//				Scripts: make([]string, len(meta.Exclude.Scripts)),
-//			},
-//			NavLinks: (*meta).NavLinks,
-//		}
-//		return &out, nil
-//	default:
-//		return nil, fmt.Errorf("unknown error representing wyweb page")
-//	}
-//}
 
 // //////////////////////////////////////////////////////////////////////////////
 //

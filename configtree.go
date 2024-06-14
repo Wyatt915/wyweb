@@ -17,8 +17,7 @@ type Heritable struct {
 	Copyright  string
 	DomainName string
 	Meta       []string
-	Styles     []string
-	Scripts    []string
+	Resources  []string
 }
 
 type configNode struct {
@@ -38,11 +37,10 @@ func newConfigNode() configNode {
 }
 
 type ConfigTree struct {
-	Root    *configNode
-	Scripts map[string]WWHeaderInclude
-	Styles  map[string]WWHeaderInclude
-	Domain  string
-	mu      sync.Mutex
+	Root      *configNode
+	Resources map[string]Resource
+	Domain    string
+	mu        sync.Mutex
 }
 
 func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
@@ -122,7 +120,6 @@ func (node *configNode) resolve() error {
 	if meta == nil {
 		return nil
 	}
-	fmt.Println(reflect.TypeOf(meta))
 	switch (*meta).(type) {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
@@ -131,11 +128,9 @@ func (node *configNode) resolve() error {
 			Copyright:  temp.Copyright,
 			DomainName: temp.DomainName,
 			Meta:       temp.Meta,
-			Styles:     make([]string, len(temp.Default.Styles)),
-			Scripts:    make([]string, len(temp.Default.Scripts)),
+			Resources:  make([]string, len(temp.Default.Resources)),
 		}
-		copy(node.Resolved.Styles, temp.Default.Styles)
-		copy(node.Resolved.Scripts, temp.Default.Scripts)
+		copy(node.Resolved.Resources, temp.Default.Resources)
 		return nil
 	case *WyWebPost, *WyWebListing, *WyWebGallery:
 		if node.Parent.Resolved == nil {
@@ -150,8 +145,6 @@ func (node *configNode) resolve() error {
 			Copyright:  node.Parent.Resolved.Copyright,
 			DomainName: node.Parent.Resolved.DomainName,
 			Meta:       node.Parent.Resolved.Meta,
-			//Styles:     make([]string, 0),
-			//Scripts:    make([]string, 0),
 		}
 		if !reflect.ValueOf(page.Author).IsZero() {
 			node.Resolved.Author = page.Author
@@ -159,56 +152,30 @@ func (node *configNode) resolve() error {
 		if !reflect.ValueOf(page.Copyright).IsZero() {
 			node.Resolved.Copyright = page.Copyright
 		}
-		//for _, style := range node.Parent.Resolved.Styles {
-		//	excluded := slices.Contains(temp.Exclude.Styles, style)
-		//	present := slices.Contains(node.Resolved.Styles, style)
-		//	if !excluded && !present {
-		//		node.Resolved.Styles = append(node.Resolved.Styles, style)
-		//	}
-		//}
-		//for _, style := range temp.Include.Styles {
-		//	present := slices.Contains(node.Resolved.Styles, style)
-		//	if !present {
-		//		node.Resolved.Styles = append(node.Resolved.Styles, style)
-		//	}
-		//}
-		localStyles := make([]string, 0)
-		localScripts := make([]string, 0)
-		for styleName, styleValue := range head.Styles {
-			_, ok := node.Tree.Styles[styleName]
+		local := make([]string, 0)
+		for name, value := range head.Resources {
+			_, ok := node.Tree.Resources[name]
 			if !ok {
-				fmt.Printf("WARN: In configuration %s, the style %s is already defined. The new definition will be ignored.\n", node.Path, styleName)
+				fmt.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
 			} else {
-				node.Tree.Styles[styleName] = styleValue
-				localStyles = append(localStyles, styleName)
+				node.Tree.Resources[name] = value
+				local = append(local, name)
 			}
 		}
-		styleIncludes := ConcatUnique(head.Include.Styles, node.Parent.Resolved.Styles)
-		node.Resolved.Styles, _ = includeExclude(localStyles, styleIncludes, head.Exclude.Styles)
-		//for _, script := range node.Parent.Resolved.Scripts {
-		//	excluded := slices.Contains(temp.Exclude.Scripts, script)
-		//	present := slices.Contains(node.Resolved.Scripts, script)
-		//	if !excluded && !present {
-		//		node.Resolved.Scripts = append(node.Resolved.Scripts, script)
-		//	}
-		//}
-		//for _, script := range temp.Include.Scripts {
-		//	present := slices.Contains(node.Resolved.Scripts, script)
-		//	if !present {
-		//		node.Resolved.Scripts = append(node.Resolved.Scripts, script)
-		//	}
-		//}
-		for scriptName, scriptValue := range head.Scripts {
-			_, ok := node.Tree.Scripts[scriptName]
-			if !ok {
-				fmt.Printf("WARN: In configuration %s, the script %s is already defined. The new definition will be ignored.\n", node.Path, scriptName)
-			} else {
-				node.Tree.Scripts[scriptName] = scriptValue
-				localScripts = append(localScripts, scriptName)
+		includes := ConcatUnique(head.Include, node.Parent.Resolved.Resources)
+		excludes := (*node.Parent.Data).GetHeadData().Exclude
+		// any excludes of the parent are overridden by local includes. Otherwise, they are inherited.
+		n := 0
+		for _, x := range excludes {
+			if !slices.Contains(head.Include, x) {
+				excludes[n] = x
+				n++
 			}
 		}
-		scriptIncludes := ConcatUnique(head.Include.Scripts, node.Parent.Resolved.Scripts)
-		node.Resolved.Scripts, _ = includeExclude(localScripts, scriptIncludes, head.Exclude.Scripts)
+		excludes = excludes[:n]
+		excludes = ConcatUnique(excludes, head.Exclude)
+
+		node.Resolved.Resources, _ = includeExclude(local, includes, excludes)
 	default:
 		fmt.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
 	}
@@ -232,7 +199,6 @@ func (node *configNode) growTree(dir string, tree *ConfigTree) error {
 		}
 		meta, e := readWyWeb(path)
 		if e != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", e)
 			return nil
 		}
 		child := configNode{
@@ -249,7 +215,6 @@ func (node *configNode) growTree(dir string, tree *ConfigTree) error {
 		child.growTree(path, tree)
 		return nil
 	})
-	fmt.Printf("New child node:\n%+v\n", node)
 	return status
 }
 
@@ -264,10 +229,9 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 		Resolved: nil,
 	}
 	out := ConfigTree{
-		Domain:  domain,
-		Root:    &rootnode,
-		Scripts: make(map[string]WWHeaderInclude),
-		Styles:  make(map[string]WWHeaderInclude),
+		Domain:    domain,
+		Root:      &rootnode,
+		Resources: make(map[string]Resource),
 	}
 	rootnode.Tree = &out
 	meta, err := readWyWeb(documentRoot)
@@ -278,11 +242,8 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	if (meta).GetType() != "root" {
 		return nil, fmt.Errorf("the wyweb file located at %s must be of type root", documentRoot)
 	}
-	for k, v := range (meta).(*WyWebRoot).Available.Styles {
-		out.Styles[k] = v
-	}
-	for k, v := range (meta).(*WyWebRoot).Available.Scripts {
-		out.Scripts[k] = v
+	for k, v := range (meta).(*WyWebRoot).Resources {
+		out.Resources[k] = v
 	}
 	rootnode.Data = &meta
 	rootnode.growTree(documentRoot, &out)
@@ -303,10 +264,64 @@ func (tree *ConfigTree) search(path string) (*WyWebMeta, *Heritable, error) {
 		}
 		node = child
 	}
-	fmt.Printf("End: %s | %s", directory, thisPath[len(thisPath)-1])
 	// there are previously undiscovered directories that need to be filled in
 	if directory != thisPath[len(thisPath)-1] {
 		return nil, nil, fmt.Errorf("not found")
 	}
+	//fmt.Printf("%s: %+v\n\n", path, node.Resolved)
 	return node.Data, node.Resolved, nil
+}
+
+type URLResource struct {
+	string
+}
+
+type RawResource struct {
+	string
+}
+
+type HTMLHeadData struct {
+	Title   string
+	Meta    []string
+	Styles  []interface{}
+	Scripts []interface{}
+}
+
+func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Heritable) *HTMLHeadData {
+	tree.mu.Lock()
+	defer tree.mu.Unlock()
+	page := (*meta).GetPageData()
+	styles := make([]interface{}, 0)
+	scripts := make([]interface{}, 0)
+	for _, name := range resolved.Resources {
+		res, ok := tree.Resources[name]
+		if !ok {
+			log.Printf("%s does not exist in the resource registry.\n", name)
+			continue
+		}
+		var value interface{}
+		switch res.Method {
+		case "raw":
+			value = RawResource{res.Value}
+		case "url":
+			value = URLResource{res.Value}
+		default:
+			log.Printf("Unknown method for resource %s: %s\n", name, res.Type)
+		}
+		switch res.Type {
+		case "style":
+			styles = append(styles, value)
+		case "script":
+			scripts = append(scripts, value)
+		default:
+			log.Printf("Unknown type for resource %s: %s\n", name, res.Type)
+		}
+	}
+	out := &HTMLHeadData{
+		Title:   page.Title,
+		Meta:    resolved.Meta,
+		Styles:  styles,
+		Scripts: scripts,
+	}
+	return out
 }
