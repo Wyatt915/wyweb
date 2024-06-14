@@ -4,6 +4,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -26,6 +27,7 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 
 	"wyweb.site/wyweb/extensions"
+	wmd "wyweb.site/wyweb/metadata"
 )
 
 func check(e error) {
@@ -77,27 +79,27 @@ type head struct {
 	Link  []link `xml:"link,omitempty"`
 }
 
-func buildHead(metadata HTMLHeadData) ([]byte, error) {
+func buildHead(headData wmd.HTMLHeadData) ([]byte, error) {
 	links := make([]link, 0)
-	for _, style := range metadata.Styles {
-		switch style.(type) {
-		case URLResource:
-			links = append(links, link{Rel: "stylesheet", Href: (style.(URLResource)).string})
+	for _, style := range headData.Styles {
+		switch s := style.(type) {
+		case wmd.URLResource:
+			links = append(links, link{Rel: "stylesheet", Href: s.String})
 			//case RawResource:
 		default:
 			continue
 		}
 	}
 	data := head{
-		Title: metadata.Title,
+		Title: headData.Title,
 		Link:  links,
 	}
-	meta := []byte(strings.Join(metadata.Meta, "\n"))
+	meta := []byte(strings.Join(headData.Meta, "\n"))
 	other, err := xml.Marshal(data)
 	return slices.Concat(meta, other), err
 }
 
-func buildDocument(bodyHTML []byte, head HTMLHeadData) (bytes.Buffer, error) {
+func buildDocument(bodyHTML []byte, head wmd.HTMLHeadData) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n<html>")
 	headXML, _ := buildHead(head)
@@ -123,14 +125,14 @@ func directoryListing(dir string) ([]byte, error) {
 		if e != nil {
 			return nil
 		}
-		meta, e := readWyWeb(path)
+		meta, e := wmd.ReadWyWeb(path)
 		if e != nil {
 			fmt.Fprintf(os.Stderr, "%v\n", e)
 			return nil
 		}
 		buf.WriteString(`<a href="`)
 		buf.WriteString(path)
-		buf.WriteString(fmt.Sprintf(`">%s</a><br />`, meta.(*WyWebPost).Title))
+		buf.WriteString(fmt.Sprintf(`">%s</a><br />`, meta.GetPageData().Title))
 		return nil
 	})
 	return buf.Bytes(), nil
@@ -138,7 +140,7 @@ func directoryListing(dir string) ([]byte, error) {
 
 type MyHandler struct {
 	http.Handler
-	tree *ConfigTree
+	tree *wmd.ConfigTree
 }
 
 func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
@@ -146,12 +148,11 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	os.Chdir(docRoot)
 	if r.tree == nil {
 		var e error
-		r.tree, e = BuildConfigTree(".", "DOMAIN")
+		r.tree, e = wmd.BuildConfigTree(".", "DOMAIN")
 		check(e)
 	}
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
-	fmt.Println(path)
 	_, err := os.Stat(filepath.Join(path, "wyweb"))
 	isWyWeb := err == nil
 
@@ -169,13 +170,13 @@ func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		`))
 		return
 	}
-	meta, resolved, err := r.tree.search(path)
+	meta, resolved, err := r.tree.Search(path)
 	check(err)
 	switch t := (*meta).(type) {
 	//case *WyWebRoot:
-	case *WyWebListing:
+	case *wmd.WyWebListing:
 		source, _ = directoryListing(path)
-	case *WyWebPost:
+	case *wmd.WyWebPost:
 		mdtext, err := os.ReadFile(filepath.Join(path, t.Index))
 		check(err)
 		temp, _ := mdConvert(mdtext, path)
@@ -196,7 +197,7 @@ func main() {
 	check(err)
 	gid, err := strconv.Atoi(grp.Gid)
 	if err = os.Chown(sockfile, -1, gid); err != nil {
-		fmt.Printf("Failed to change ownership: %v\n", err)
+		log.Printf("Failed to change ownership: %v\n", err)
 		return
 	}
 	os.Chmod("/tmp/wyweb.sock", 0660)

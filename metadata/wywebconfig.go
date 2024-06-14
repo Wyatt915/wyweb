@@ -1,4 +1,4 @@
-package main
+package metadata
 
 import (
 	"fmt"
@@ -234,7 +234,7 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func readWyWeb(dir string) (WyWebMeta, error) {
+func ReadWyWeb(dir string) (WyWebMeta, error) {
 	stat, err := os.Stat(dir)
 	if err != nil {
 		return nil, err

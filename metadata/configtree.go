@@ -1,4 +1,4 @@
-package main
+package metadata
 
 import (
 	"fmt"
@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"wyweb.site/wyweb/util"
 )
 
 type Heritable struct {
@@ -46,9 +48,9 @@ type ConfigTree struct {
 func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
-	rootPath := PathToList(tree.Root.Path)
-	thisPath := PathToList((*cfg).GetPath())
-	_, err := NearestCommonAncestor(rootPath, thisPath)
+	rootPath := util.PathToList(tree.Root.Path)
+	thisPath := util.PathToList((*cfg).GetPath())
+	_, err := util.NearestCommonAncestor(rootPath, thisPath)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +158,13 @@ func (node *configNode) resolve() error {
 		for name, value := range head.Resources {
 			_, ok := node.Tree.Resources[name]
 			if !ok {
-				fmt.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
+				log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
 			} else {
 				node.Tree.Resources[name] = value
 				local = append(local, name)
 			}
 		}
-		includes := ConcatUnique(head.Include, node.Parent.Resolved.Resources)
+		includes := util.ConcatUnique(head.Include, node.Parent.Resolved.Resources)
 		excludes := (*node.Parent.Data).GetHeadData().Exclude
 		// any excludes of the parent are overridden by local includes. Otherwise, they are inherited.
 		n := 0
@@ -172,12 +174,11 @@ func (node *configNode) resolve() error {
 				n++
 			}
 		}
-		excludes = excludes[:n]
-		excludes = ConcatUnique(excludes, head.Exclude)
+		excludes = util.ConcatUnique(excludes[:n], head.Exclude)
 
 		node.Resolved.Resources, _ = includeExclude(local, includes, excludes)
 	default:
-		fmt.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
+		log.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
 	}
 	return nil
 }
@@ -197,7 +198,7 @@ func (node *configNode) growTree(dir string, tree *ConfigTree) error {
 		if e != nil {
 			return nil
 		}
-		meta, e := readWyWeb(path)
+		meta, e := ReadWyWeb(path)
 		if e != nil {
 			return nil
 		}
@@ -234,9 +235,9 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 		Resources: make(map[string]Resource),
 	}
 	rootnode.Tree = &out
-	meta, err := readWyWeb(documentRoot)
+	meta, err := ReadWyWeb(documentRoot)
 	if err != nil {
-		fmt.Printf("Document root: %s\n", documentRoot)
+		log.Printf("Document root: %s\n", documentRoot)
 		return nil, err
 	}
 	if (meta).GetType() != "root" {
@@ -250,13 +251,13 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	return &out, nil
 }
 
-func (tree *ConfigTree) search(path string) (*WyWebMeta, *Heritable, error) {
+func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Heritable, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	node := tree.Root
 	var child *configNode
 	var directory string
-	thisPath := PathToList(path)
+	thisPath := util.PathToList(path)
 	for _, directory = range thisPath {
 		child = node.Children[directory]
 		if child == nil {
@@ -268,12 +269,12 @@ func (tree *ConfigTree) search(path string) (*WyWebMeta, *Heritable, error) {
 	if directory != thisPath[len(thisPath)-1] {
 		return nil, nil, fmt.Errorf("not found")
 	}
-	//fmt.Printf("%s: %+v\n\n", path, node.Resolved)
+	//log.Printf("%s: %+v\n\n", path, node.Resolved)
 	return node.Data, node.Resolved, nil
 }
 
 type URLResource struct {
-	string
+	String string
 }
 
 type RawResource struct {

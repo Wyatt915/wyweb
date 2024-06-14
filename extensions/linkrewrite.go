@@ -2,7 +2,7 @@ package extensions
 
 import (
 	"errors"
-	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -49,7 +49,7 @@ func (r linkRewriteTransformer) Transform(node *ast.Document, reader text.Reader
 			var err error
 			*url, err = rewriteURL(*url, r.subdir)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, string(*url), err.Error())
+				log.Printf("Error transforming URL '%s' : %s\n", string(*url), err.Error())
 			}
 		}
 		return ast.WalkContinue, nil
