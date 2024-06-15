@@ -14,12 +14,13 @@ import (
 	"wyweb.site/wyweb/util"
 )
 
-type Heritable struct {
+type Distillate struct {
 	Author     string
 	Copyright  string
 	DomainName string
 	Meta       []string
 	Resources  []string
+	HTML       *[]byte
 }
 
 type configNode struct {
@@ -27,7 +28,7 @@ type configNode struct {
 	Parent   *configNode
 	Data     *WyWebMeta
 	Tree     *ConfigTree
-	Resolved *Heritable
+	Resolved *Distillate
 	Path     string
 }
 
@@ -125,12 +126,13 @@ func (node *configNode) resolve() error {
 	switch (*meta).(type) {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
-		node.Resolved = &Heritable{
+		node.Resolved = &Distillate{
 			Author:     temp.Author,
 			Copyright:  temp.Copyright,
 			DomainName: temp.DomainName,
 			Meta:       temp.Meta,
 			Resources:  make([]string, len(temp.Default.Resources)),
+			HTML:       nil,
 		}
 		copy(node.Resolved.Resources, temp.Default.Resources)
 		return nil
@@ -142,11 +144,12 @@ func (node *configNode) resolve() error {
 		//var copyright string
 		head := (*meta).GetHeadData()
 		page := (*meta).GetPageData()
-		node.Resolved = &Heritable{
+		node.Resolved = &Distillate{
 			Author:     node.Parent.Resolved.Author,
 			Copyright:  node.Parent.Resolved.Copyright,
 			DomainName: node.Parent.Resolved.DomainName,
 			Meta:       node.Parent.Resolved.Meta,
+			HTML:       nil,
 		}
 		if !reflect.ValueOf(page.Author).IsZero() {
 			node.Resolved.Author = page.Author
@@ -251,7 +254,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	return &out, nil
 }
 
-func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Heritable, error) {
+func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	node := tree.Root
@@ -288,7 +291,7 @@ type HTMLHeadData struct {
 	Scripts []interface{}
 }
 
-func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Heritable) *HTMLHeadData {
+func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Distillate) *HTMLHeadData {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	page := (*meta).GetPageData()

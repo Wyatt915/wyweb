@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	//"gopkg.in/yaml.v3"
 	"bytes"
@@ -30,14 +31,31 @@ import (
 	wmd "wyweb.site/wyweb/metadata"
 )
 
+var globalTree *wmd.ConfigTree
+
+const fileNotFound = `
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+</body>
+</html>
+`
+
 func check(e error) {
 	if e != nil {
 		fmt.Println(e.Error())
 		panic(e)
 	}
 }
-
+func timer(name string) func() {
+	start := time.Now()
+	return func() {
+		log.Printf("%s took %v\n", name, time.Since(start))
+	}
+}
 func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
+	defer timer("mdConvert")()
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			extensions.EmbedMedia(),
@@ -104,9 +122,9 @@ func buildDocument(bodyHTML []byte, head wmd.HTMLHeadData) (bytes.Buffer, error)
 	buf.WriteString("<!DOCTYPE html>\n<html>")
 	headXML, _ := buildHead(head)
 	buf.Write(headXML)
-	buf.WriteString("<body>")
+	buf.WriteString("<body><article><main>")
 	buf.Write(bodyHTML)
-	buf.WriteString("</body>\n</html>\n")
+	buf.WriteString("</main></article></body>\n</html>\n")
 	return buf, nil
 }
 
@@ -138,55 +156,54 @@ func directoryListing(dir string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-type MyHandler struct {
+type WyWebHandler struct {
 	http.Handler
-	tree *wmd.ConfigTree
 }
 
-func (r MyHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	defer timer("ServeHTTP")()
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
-	if r.tree == nil {
+	if globalTree == nil {
 		var e error
-		r.tree, e = wmd.BuildConfigTree(".", "DOMAIN")
+		globalTree, e = wmd.BuildConfigTree(".", "DOMAIN")
 		check(e)
 	}
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
-	_, err := os.Stat(filepath.Join(path, "wyweb"))
-	isWyWeb := err == nil
 
-	var source []byte
-	if !isWyWeb {
-		w.WriteHeader(404)
-		w.Write([]byte(
-			`
-<html>
-<head><title>404 Not Found</title></head>
-<body>
-<center><h1>404 Not Found</h1></center>
-</body>
-</html>
-		`))
-		return
+	var renderedHTML []byte
+	meta, resolved, err := globalTree.Search(path)
+	if err != nil {
+		_, ok := os.Stat(filepath.Join(path, "wyweb"))
+		if ok != nil {
+			w.WriteHeader(404)
+			w.Write([]byte(fileNotFound))
+			return
+		}
 	}
-	meta, resolved, err := r.tree.Search(path)
-	check(err)
 	switch t := (*meta).(type) {
 	//case *WyWebRoot:
 	case *wmd.WyWebListing:
-		source, _ = directoryListing(path)
+		renderedHTML, _ = directoryListing(path)
 	case *wmd.WyWebPost:
-		mdtext, err := os.ReadFile(filepath.Join(path, t.Index))
-		check(err)
-		temp, _ := mdConvert(mdtext, path)
-		source = temp.Bytes()
+		if resolved.HTML == nil {
+			mdtext, err := os.ReadFile(filepath.Join(path, t.Index))
+			check(err)
+			temp, _ := mdConvert(mdtext, path)
+			renderedHTML = temp.Bytes()
+			resolved.HTML = &renderedHTML
+		} else {
+			renderedHTML = *resolved.HTML
+		}
 	//case *WyWebGallery:
 	default:
 		fmt.Println("whoopsie")
+		return
 	}
-	buf, _ := buildDocument(source, *r.tree.GetHeadData(meta, resolved))
+	buf, _ := buildDocument(renderedHTML, *globalTree.GetHeadData(meta, resolved))
 	w.Write(buf.Bytes())
+
 }
 
 func main() {
@@ -210,5 +227,7 @@ func main() {
 		os.Remove("/tmp/wyweb.sock")
 		os.Exit(1)
 	}()
-	http.Serve(socket, MyHandler{})
+	handler := WyWebHandler{}
+	//	handler.tree = new(wmd.ConfigTree)
+	http.Serve(socket, handler)
 }

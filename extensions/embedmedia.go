@@ -13,37 +13,37 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-type MediaType int
+type mediaType int
 
 const (
-	MediaAudio = iota
-	MediaVideo
+	mediaAudio = iota
+	mediaVideo
 )
 
-type MediaInfo struct {
+type mediaInfo struct {
 	ext         string
-	Destination []byte
+	destination []byte
 }
 
-type Media struct {
+type media struct {
 	ast.BaseInline
-	info   MediaInfo
-	medium MediaType
+	info   mediaInfo
+	medium mediaType
 }
 
 var KindMedia = ast.NewNodeKind("Media")
 
-func (n *Media) Kind() ast.NodeKind {
+func (n *media) Kind() ast.NodeKind {
 	return KindMedia
 }
 
 // Dump implements Node.Dump.
-func (n *Media) Dump(source []byte, level int) {
+func (n *media) Dump(source []byte, level int) {
 	ast.DumpHelper(n, source, level, nil, nil)
 }
 
-func NewMedia(i MediaInfo, t MediaType) *Media {
-	return &Media{
+func NewMedia(i mediaInfo, t mediaType) *media {
+	return &media{
 		info:   i,
 		medium: t,
 	}
@@ -64,16 +64,16 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 			if dotidx >= 0 {
 				ext := string(img.Destination[dotidx+1:])
 				isMedia := false
-				var flavor MediaType
+				var flavor mediaType
 				if slices.Contains(VideoExt, ext) {
-					flavor = MediaVideo
+					flavor = mediaVideo
 					isMedia = true
 				} else if slices.Contains(AudioExt, ext) {
-					flavor = MediaAudio
+					flavor = mediaAudio
 					isMedia = true
 				}
 				if isMedia {
-					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(MediaInfo{ext, img.Destination}, flavor))
+					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(mediaInfo{ext, img.Destination}, flavor))
 				}
 			}
 		}
@@ -96,7 +96,7 @@ func (r *MediaHTMLRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegistere
 }
 
 func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n, ok := node.(*Media)
+	n, ok := node.(*media)
 	if !ok {
 		return ast.WalkContinue, nil
 	}
@@ -106,11 +106,11 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 	var mime string
 
 	switch n.medium {
-	case MediaVideo:
-		tagOpen = `<video controls>`
+	case mediaVideo:
+		tagOpen = `<video controls autoplay loop mute>`
 		tagClose = `</video>`
 		mime = "video"
-	case MediaAudio:
+	case mediaAudio:
 		tagOpen = `<audio controls>`
 		tagClose = `</audio>`
 		mime = "audio"
@@ -119,7 +119,7 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 	mime = strings.Join([]string{mime, n.info.ext}, "/")
 	sourceTag := []string{
 		`<source src="`,
-		string(n.info.Destination),
+		string(n.info.destination),
 		`" type="`,
 		mime,
 		`" />`,
