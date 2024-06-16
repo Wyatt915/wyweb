@@ -43,6 +43,13 @@ type HeadData struct {
 	Exclude   []string            `yaml:"exclude,omitempty"`
 }
 
+type WyWebMeta interface {
+	GetType() string
+	GetPath() string
+	GetHeadData() *HeadData
+	GetPageData() *PageData
+}
+
 type WyWebRoot struct {
 	DomainName string `yaml:"domain_name,omitempty"`
 	Default    struct {
@@ -93,13 +100,6 @@ type WyWebGallery struct {
 	HeadData     `yaml:",inline"`
 	PageData     `yaml:",inline"`
 	GalleryItems []GalleryItem `yaml:"galleryitems,omitempty"`
-}
-
-type WyWebMeta interface {
-	GetType() string
-	GetPath() string
-	GetHeadData() *HeadData
-	GetPageData() *PageData
 }
 
 // //////////////////////////////////////////////////////////////////////////////

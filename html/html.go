@@ -1,7 +1,8 @@
-package main
+package html
 
 import (
 	"bytes"
+	"fmt"
 	"slices"
 	"strings"
 )
@@ -28,7 +29,6 @@ type HTMLElement struct {
 	Content    string
 	Attributes map[string]string
 	Children   []*HTMLElement
-	depth      int
 }
 
 func NewHTMLElement(tag string) *HTMLElement {
@@ -37,35 +37,37 @@ func NewHTMLElement(tag string) *HTMLElement {
 		Content:    "",
 		Attributes: make(map[string]string),
 		Children:   make([]*HTMLElement, 0),
-		depth:      0,
-	}
-}
-
-func (e *HTMLElement) increaseDepth(amt int) {
-	e.depth += amt
-	for _, child := range e.Children {
-		child.increaseDepth(amt)
 	}
 }
 
 func (e *HTMLElement) Append(elem *HTMLElement) {
 	e.Children = append(e.Children, elem)
-	depthDiff := e.depth - elem.depth
-	elem.increaseDepth(depthDiff + 1)
+}
+
+// Convienience function to quickly make a class attribute
+func Class(cls string) map[string]string {
+	return map[string]string{"class": cls}
+}
+
+// Convienience function to quickly make an href attribute
+func Href(url string) map[string]string {
+	return map[string]string{"href": url}
 }
 
 func (e *HTMLElement) AppendNew(tag string, attr ...map[string]string) *HTMLElement {
 	elem := NewHTMLElement(tag)
+	fmt.Printf("Raw attr: %v\n\n", attr)
 	e.Children = append(e.Children, elem)
 	for _, attributeList := range attr {
 		if attributeList == nil {
 			continue
 		}
+		fmt.Printf("%v\n", attributeList)
 		for key, value := range attributeList {
 			elem.Attributes[key] = value
 		}
 	}
-	elem.depth = e.depth + 1
+	fmt.Printf("Full attribute list: %v\n", elem.Attributes)
 	return elem
 }
 
@@ -77,13 +79,12 @@ func (e *HTMLElement) AppendText(text string) *HTMLElement {
 		Children:   nil,
 	}
 	e.Children = append(e.Children, elem)
-	elem.depth = e.depth + 1
 	return elem
 }
 
-func openTag(elem *HTMLElement) []byte {
+func openTag(elem *HTMLElement, depth int) []byte {
 	var out bytes.Buffer
-	for i := 0; i < elem.depth; i++ {
+	for i := 0; i < depth; i++ {
 		out.WriteString("    ")
 	}
 	out.WriteByte('<')
@@ -108,10 +109,10 @@ func openTag(elem *HTMLElement) []byte {
 	return out.Bytes()
 }
 
-func closeTag(elem *HTMLElement) []byte {
+func closeTag(elem *HTMLElement, depth int) []byte {
 	var out bytes.Buffer
 	if len(elem.Children) != 0 || len(elem.Content) >= 32 {
-		for i := 0; i < elem.depth; i++ {
+		for i := 0; i < depth; i++ {
 			out.WriteString("    ")
 		}
 	}
@@ -121,11 +122,15 @@ func closeTag(elem *HTMLElement) []byte {
 	return out.Bytes()
 }
 
-func RenderHTML(root *HTMLElement, text *bytes.Buffer) {
+func RenderHTML(root *HTMLElement, text *bytes.Buffer, optDepth ...int) {
+	var depth int
+	if len(optDepth) > 0 {
+		depth = optDepth[0]
+	}
 	if root.Tag == "" {
 		lines := strings.Split(root.Content, "\n")
 		for _, line := range lines {
-			for i := 0; i < root.depth; i++ {
+			for i := 0; i < depth; i++ {
 				text.WriteString("    ")
 			}
 			text.WriteString(strings.TrimSpace(line))
@@ -133,12 +138,12 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer) {
 		}
 		return
 	}
-	text.Write(openTag(root))
+	text.Write(openTag(root, depth))
 	for _, elem := range root.Children {
-		RenderHTML(elem, text)
+		RenderHTML(elem, text, depth+1)
 	}
 	// void elements should not have a closing tag!
 	if !slices.Contains(voidElements, root.Tag) {
-		text.Write(closeTag(root))
+		text.Write(closeTag(root, depth))
 	}
 }

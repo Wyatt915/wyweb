@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -26,6 +25,7 @@ import (
 	"github.com/yuin/goldmark/renderer/html"
 
 	"wyweb.site/wyweb/extensions"
+	. "wyweb.site/wyweb/html"
 	wmd "wyweb.site/wyweb/metadata"
 )
 
@@ -113,43 +113,63 @@ func buildHead(headData wmd.HTMLHeadData) *HTMLElement {
 	return head
 }
 
-func buildDocument(bodyHTML []byte, headData wmd.HTMLHeadData) (bytes.Buffer, error) {
+func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n")
 	document := NewHTMLElement("html")
-	head := buildHead(headData)
-	document.Append(head)
-	document.AppendNew("body").AppendNew("article").AppendNew("main").AppendText(string(bodyHTML))
+	document.Append(buildHead(headData))
+	document.AppendNew("body").Append(bodyHTML)
 	RenderHTML(document, &buf)
 	return buf, nil
 }
 
-func directoryListing(dir string) ([]byte, error) {
-	var buf bytes.Buffer
-	filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
-		if path == dir {
-			return nil
+
+func buildListing(node *wmd.ConfigNode) error {
+	meta := (*node.Data).(*wmd.WyWebListing)
+	//filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
+	//	if path == dir {
+	//		return nil
+	//	}
+	//	if !info.IsDir() {
+	//		return nil
+	//	}
+	//	fmt.Println(path, info.Name())
+	//	wwFileName := filepath.Join(path, "wyweb")
+	//	_, e := os.Stat(wwFileName)
+	//	if e != nil {
+	//		return nil
+	//	}
+	//	meta, e := wmd.ReadWyWeb(path)
+	//	if e != nil {
+	//		fmt.Fprintf(os.Stderr, "%v\n", e)
+	//		return nil
+	//	}
+	//	buf.WriteString(`<a href="`)
+	//	buf.WriteString(path)
+	//	buf.WriteString(fmt.Sprintf(`">%s</a><br />`, meta.GetPageData().Title))
+	//	return nil
+	//})
+	page := NewHTMLElement("article")
+	page.AppendNew("nav", Class("navlinks"))
+	page.AppendNew("header", Class("listingheader")).AppendNew("h1").AppendText(meta.Title)
+	page.AppendNew("div", Class("description")).AppendText(meta.Description)
+	for _, child := range node.Children {
+		switch post := (*child.Data).(type) {
+		case *wmd.WyWebPost:
+			listing := page.AppendNew("div", Class("listing"))
+			listing.AppendNew("a", Href(post.Path)).AppendNew("h2").AppendText(post.Title)
+			tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
+			tagcontainer.AppendText("Tags")
+			taglist := tagcontainer.AppendNew("div", Class("taglist"))
+			for _, tag := range post.Tags {
+				taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+			}
+		default:
+			continue
 		}
-		if !info.IsDir() {
-			return nil
-		}
-		fmt.Println(path, info.Name())
-		wwFileName := filepath.Join(path, "wyweb")
-		_, e := os.Stat(wwFileName)
-		if e != nil {
-			return nil
-		}
-		meta, e := wmd.ReadWyWeb(path)
-		if e != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", e)
-			return nil
-		}
-		buf.WriteString(`<a href="`)
-		buf.WriteString(path)
-		buf.WriteString(fmt.Sprintf(`">%s</a><br />`, meta.GetPageData().Title))
-		return nil
-	})
-	return buf.Bytes(), nil
+	}
+	node.Resolved.HTML = page
+	return nil
 }
 
 func findIndex(path string) ([]byte, error) {
@@ -171,7 +191,9 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func buildPost(meta *wmd.WyWebPost, resolved *wmd.Distillate) {
+func buildPost(node *wmd.ConfigNode) {
+	meta := (*node.Data).(*wmd.WyWebPost)
+	resolved := node.Resolved
 	var mdtext []byte
 	var err error
 	if meta.Index != "" {
@@ -181,8 +203,9 @@ func buildPost(meta *wmd.WyWebPost, resolved *wmd.Distillate) {
 	}
 	check(err)
 	temp, _ := mdConvert(mdtext, meta.Path)
-	renderedHTML := temp.Bytes()
-	resolved.HTML = &renderedHTML
+	article := NewHTMLElement("article")
+	article.AppendText(temp.String())
+	resolved.HTML = article
 }
 
 type WyWebHandler struct {
@@ -201,8 +224,9 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 
-	var renderedHTML []byte
-	meta, resolved, err := globalTree.Search(path)
+	node, err := globalTree.Search(path)
+	meta := node.Data
+	resolved := node.Resolved
 	if err != nil {
 		_, ok := os.Stat(filepath.Join(path, "wyweb"))
 		if ok != nil {
@@ -213,22 +237,20 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		fmt.Printf("%+v\n\n%+v\n\n%+v\n", meta, resolved, err)
 		return
 	}
-	switch wyweb := (*meta).(type) {
-	//case *WyWebRoot:
-	case *wmd.WyWebListing:
-		renderedHTML, _ = directoryListing(path)
-	case *wmd.WyWebPost:
-		if resolved.HTML == nil {
-			buildPost(wyweb, resolved)
+	if node.Resolved.HTML == nil {
+		switch (*meta).(type) {
+		//case *WyWebRoot:
+		case *wmd.WyWebListing:
+			buildListing(node)
+		case *wmd.WyWebPost:
+			buildPost(node)
+		//case *WyWebGallery:
+		default:
+			fmt.Println("whoopsie")
+			return
 		}
-		renderedHTML = *resolved.HTML
-
-	//case *WyWebGallery:
-	default:
-		fmt.Println("whoopsie")
-		return
 	}
-	buf, _ := buildDocument(renderedHTML, *globalTree.GetHeadData(meta, resolved))
+	buf, _ := buildDocument(node.Resolved.HTML, *globalTree.GetHeadData(meta, resolved))
 	w.Write(buf.Bytes())
 
 }
@@ -239,7 +261,7 @@ func main() {
 	check(err)
 	grp, err := user.LookupGroup("www-data")
 	check(err)
-	gid, err := strconv.Atoi(grp.Gid)
+	gid, _ := strconv.Atoi(grp.Gid)
 	if err = os.Chown(sockfile, -1, gid); err != nil {
 		log.Printf("Failed to change ownership: %v\n", err)
 		return

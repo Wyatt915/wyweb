@@ -11,13 +11,14 @@ import (
 	"strings"
 	"sync"
 
+	"wyweb.site/wyweb/html"
 	"wyweb.site/wyweb/util"
 )
 
 // A Distillate is the resolved and "distilled" data about a given webpage. It is the result of determining all includes
 // and excludes, as well as the final rendered HTML of the page.
 type Distillate struct {
-	HTML       *[]byte
+	HTML       *html.HTMLElement
 	Author     string
 	Copyright  string
 	DomainName string
@@ -25,32 +26,32 @@ type Distillate struct {
 	Resources  []string // the names (keys) of resources requested by this page
 }
 
-type configNode struct {
-	Children map[string]*configNode
-	Parent   *configNode
+type ConfigNode struct {
+	Children map[string]*ConfigNode
+	Parent   *ConfigNode
 	Data     *WyWebMeta
 	Tree     *ConfigTree
 	Resolved *Distillate
 	Path     string
 }
 
-func newConfigNode() configNode {
-	var out configNode
-	out.Children = make(map[string]*configNode)
+func newConfigNode() ConfigNode {
+	var out ConfigNode
+	out.Children = make(map[string]*ConfigNode)
 	out.Resolved = nil
 	return out
 }
 
 // Logical representation of the entire website
 type ConfigTree struct {
-	Root      *configNode
+	Root      *ConfigNode
 	Resources map[string]Resource
 	Domain    string
 	mu        sync.Mutex
 }
 
 // Create a new configNode from cfg and add it to the tree
-func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
+func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*ConfigNode, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	rootPath := util.PathToList(tree.Root.Path)
@@ -60,7 +61,7 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
 		return nil, err
 	}
 	parent := tree.Root
-	var child *configNode
+	var child *ConfigNode
 	var directory string
 	keepSearching := true
 	for keepSearching {
@@ -82,11 +83,11 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
 	if parent.Children[directory] != nil {
 		return parent.Children[directory], nil
 	}
-	result := configNode{
+	result := ConfigNode{
 		Path:     (*cfg).GetPath(),
 		Parent:   parent,
 		Data:     cfg,
-		Children: make(map[string]*configNode),
+		Children: make(map[string]*ConfigNode),
 		Tree:     tree,
 		Resolved: nil,
 	}
@@ -119,7 +120,7 @@ func includeExclude(local []string, include []string, exclude []string) ([]strin
 	return result, nil
 }
 
-func (node *configNode) resolve() error {
+func (node *ConfigNode) resolve() error {
 	if node.Resolved != nil {
 		return nil
 	}
@@ -190,7 +191,7 @@ func (node *configNode) resolve() error {
 	return nil
 }
 
-func (node *configNode) growTree(dir string, tree *ConfigTree) error {
+func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 	var status error
 	node.Tree = tree
 	filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
@@ -209,11 +210,11 @@ func (node *configNode) growTree(dir string, tree *ConfigTree) error {
 		if e != nil {
 			return nil
 		}
-		child := configNode{
+		child := ConfigNode{
 			Path:     path,
 			Parent:   node,
 			Data:     &meta,
-			Children: make(map[string]*configNode),
+			Children: make(map[string]*ConfigNode),
 			Tree:     tree,
 			Resolved: nil,
 		}
@@ -228,11 +229,11 @@ func (node *configNode) growTree(dir string, tree *ConfigTree) error {
 
 func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	var err error
-	rootnode := configNode{
+	rootnode := ConfigNode{
 		Path:     documentRoot,
 		Parent:   nil,
 		Data:     nil,
-		Children: make(map[string]*configNode),
+		Children: make(map[string]*ConfigNode),
 		Tree:     nil,
 		Resolved: nil,
 	}
@@ -258,11 +259,11 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	return &out, nil
 }
 
-func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
+func (tree *ConfigTree) Search(path string) (*ConfigNode, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	node := tree.Root
-	var child *configNode
+	var child *ConfigNode
 	var directory string
 	thisPath := util.PathToList(path)
 	for _, directory = range thisPath {
@@ -275,10 +276,10 @@ func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
 	// there are previously undiscovered directories that need to be filled in
 	if node.Path != path {
 		fmt.Printf("%+v\n", *node)
-		return nil, nil, fmt.Errorf("not found")
+		return nil, fmt.Errorf("not found")
 	}
 	//log.Printf("%s: %+v\n\n", path, node.Resolved)
-	return node.Data, node.Resolved, nil
+	return node, nil
 }
 
 type URLResource struct {
