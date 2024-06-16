@@ -2,7 +2,6 @@ package html
 
 import (
 	"bytes"
-	"fmt"
 	"slices"
 	"strings"
 )
@@ -56,18 +55,15 @@ func Href(url string) map[string]string {
 
 func (e *HTMLElement) AppendNew(tag string, attr ...map[string]string) *HTMLElement {
 	elem := NewHTMLElement(tag)
-	fmt.Printf("Raw attr: %v\n\n", attr)
 	e.Children = append(e.Children, elem)
 	for _, attributeList := range attr {
 		if attributeList == nil {
 			continue
 		}
-		fmt.Printf("%v\n", attributeList)
 		for key, value := range attributeList {
 			elem.Attributes[key] = value
 		}
 	}
-	fmt.Printf("Full attribute list: %v\n", elem.Attributes)
 	return elem
 }
 
@@ -80,6 +76,25 @@ func (e *HTMLElement) AppendText(text string) *HTMLElement {
 	}
 	e.Children = append(e.Children, elem)
 	return elem
+}
+
+func isShort(elem *HTMLElement) (bool, int) {
+	if elem == nil {
+		return false, 0
+	}
+	if len(elem.Children) > 1 {
+		return false, 0
+	}
+	if len(elem.Children) == 0 {
+		if elem.Tag == "" {
+			return true, len(elem.Content)
+		}
+		return true, 0
+	}
+	if elem.Children[0].Tag != "" {
+		return false, 0
+	}
+	return true, len(elem.Children[0].Content)
 }
 
 func openTag(elem *HTMLElement, depth int) []byte {
@@ -101,7 +116,7 @@ func openTag(elem *HTMLElement, depth int) []byte {
 	}
 	if slices.Contains(voidElements, elem.Tag) {
 		out.WriteString(">\n")
-	} else if len(elem.Children) == 0 && len(elem.Content) < 32 {
+	} else if short, textlen := isShort(elem); short && textlen < 32 {
 		out.WriteByte('>')
 	} else {
 		out.WriteString(">\n")
@@ -111,7 +126,7 @@ func openTag(elem *HTMLElement, depth int) []byte {
 
 func closeTag(elem *HTMLElement, depth int) []byte {
 	var out bytes.Buffer
-	if len(elem.Children) != 0 || len(elem.Content) >= 32 {
+	if short, textlen := isShort(elem); !(short && textlen < 32) {
 		for i := 0; i < depth; i++ {
 			out.WriteString("    ")
 		}
@@ -122,25 +137,33 @@ func closeTag(elem *HTMLElement, depth int) []byte {
 	return out.Bytes()
 }
 
-func RenderHTML(root *HTMLElement, text *bytes.Buffer, optDepth ...int) {
+func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 	var depth int
-	if len(optDepth) > 0 {
-		depth = optDepth[0]
+	var siblings int
+	if len(opts) > 0 {
+		depth = opts[0]
+	}
+	if len(opts) > 1 {
+		siblings = opts[1]
 	}
 	if root.Tag == "" {
 		lines := strings.Split(root.Content, "\n")
 		for _, line := range lines {
-			for i := 0; i < depth; i++ {
-				text.WriteString("    ")
+			if short, textlen := isShort(root); !short || textlen >= 32 || len(lines) > 1 || siblings > 1 {
+				for i := 0; i < depth; i++ {
+					text.WriteString("    ")
+				}
+				text.WriteString(strings.TrimSpace(line))
+				text.WriteByte('\n')
+			} else {
+				text.WriteString(strings.TrimSpace(line))
 			}
-			text.WriteString(strings.TrimSpace(line))
-			text.WriteByte('\n')
 		}
 		return
 	}
 	text.Write(openTag(root, depth))
 	for _, elem := range root.Children {
-		RenderHTML(elem, text, depth+1)
+		RenderHTML(elem, text, depth+1, len(root.Children))
 	}
 	// void elements should not have a closing tag!
 	if !slices.Contains(voidElements, root.Tag) {

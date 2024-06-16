@@ -123,7 +123,6 @@ func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buff
 	return buf, nil
 }
 
-
 func buildListing(node *wmd.ConfigNode) error {
 	meta := (*node.Data).(*wmd.WyWebListing)
 	//filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
