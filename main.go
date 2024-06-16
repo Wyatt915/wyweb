@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/xml"
 	"fmt"
 	"io/fs"
 	"log"
@@ -11,7 +10,6 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -85,41 +83,41 @@ func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	return buf, err
 }
 
-type link struct {
-	Rel   string `xml:"rel,attr,omitempty"`
-	Href  string `xml:"href,attr,omitempty"`
-	Title string `xml:"title,attr,omitempty"`
-	Type  string `xml:"type,attr,omitempty"`
-}
-
-type head struct {
-	Title string `xml:"title,omitempty"`
-	Link  []link `xml:"link,omitempty"`
-}
-
 func buildHead(headData wmd.HTMLHeadData) ([]byte, error) {
-	links := make([]link, 0)
+	head := NewHTMLElement("head")
+	title := head.AppendNew("title")
+	title.AppendText(headData.Title)
 	for _, style := range headData.Styles {
 		switch s := style.(type) {
 		case wmd.URLResource:
-			links = append(links, link{Rel: "stylesheet", Href: s.String})
-			//case RawResource:
+			head.AppendNew("link", map[string]string{"rel": "stylesheet", "href": s.String}, s.Attributes)
+		case wmd.RawResource:
+			tag := head.AppendNew("style", s.Attributes)
+			tag.AppendText(s.String)
 		default:
 			continue
 		}
 	}
-	data := head{
-		Title: headData.Title,
-		Link:  links,
+	for _, script := range headData.Scripts {
+		switch s := script.(type) {
+		case wmd.URLResource:
+			head.AppendNew("script", map[string]string{"src": s.String, "async": ""}, s.Attributes)
+		case wmd.RawResource:
+			tag := head.AppendNew("script", s.Attributes)
+			tag.AppendText(s.String)
+		default:
+			continue
+		}
 	}
-	meta := []byte(strings.Join(headData.Meta, "\n"))
-	other, err := xml.Marshal(data)
-	return slices.Concat(meta, other), err
+	head.AppendText(strings.Join(headData.Meta, "\n"))
+	var text bytes.Buffer
+	RenderHTML(head, &text)
+	return text.Bytes(), nil
 }
 
 func buildDocument(bodyHTML []byte, head wmd.HTMLHeadData) (bytes.Buffer, error) {
 	var buf bytes.Buffer
-	buf.WriteString("<!DOCTYPE html>\n<html>")
+	buf.WriteString("<!DOCTYPE html>\n<html>\n")
 	headXML, _ := buildHead(head)
 	buf.Write(headXML)
 	buf.WriteString("<body><article><main>")
@@ -156,6 +154,39 @@ func directoryListing(dir string) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+func findIndex(path string) ([]byte, error) {
+	tryFiles := []string{
+		"article.md",
+		"index.md",
+		"post.md",
+		"article",
+		"index",
+		"post",
+	}
+	for _, f := range tryFiles {
+		index := filepath.Join(path, f)
+		_, err := os.Stat(index)
+		if err == nil {
+			return os.ReadFile(index)
+		}
+	}
+	return nil, fmt.Errorf("could not find index")
+}
+
+func buildPost(meta *wmd.WyWebPost, resolved *wmd.Distillate) {
+	var mdtext []byte
+	var err error
+	if meta.Index != "" {
+		mdtext, err = os.ReadFile(filepath.Join(meta.Path, meta.Index))
+	} else {
+		mdtext, err = findIndex(meta.Path)
+	}
+	check(err)
+	temp, _ := mdConvert(mdtext, meta.Path)
+	renderedHTML := temp.Bytes()
+	resolved.HTML = &renderedHTML
+}
+
 type WyWebHandler struct {
 	http.Handler
 }
@@ -181,21 +212,19 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(fileNotFound))
 			return
 		}
+		fmt.Printf("%+v\n\n%+v\n\n%+v\n", meta, resolved, err)
+		return
 	}
-	switch t := (*meta).(type) {
+	switch wyweb := (*meta).(type) {
 	//case *WyWebRoot:
 	case *wmd.WyWebListing:
 		renderedHTML, _ = directoryListing(path)
 	case *wmd.WyWebPost:
 		if resolved.HTML == nil {
-			mdtext, err := os.ReadFile(filepath.Join(path, t.Index))
-			check(err)
-			temp, _ := mdConvert(mdtext, path)
-			renderedHTML = temp.Bytes()
-			resolved.HTML = &renderedHTML
-		} else {
-			renderedHTML = *resolved.HTML
+			buildPost(wyweb, resolved)
 		}
+		renderedHTML = *resolved.HTML
+
 	//case *WyWebGallery:
 	default:
 		fmt.Println("whoopsie")

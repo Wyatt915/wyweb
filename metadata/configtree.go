@@ -14,13 +14,15 @@ import (
 	"wyweb.site/wyweb/util"
 )
 
+// A Distillate is the resolved and "distilled" data about a given webpage. It is the result of determining all includes
+// and excludes, as well as the final rendered HTML of the page.
 type Distillate struct {
+	HTML       *[]byte
 	Author     string
 	Copyright  string
 	DomainName string
-	Meta       []string
-	Resources  []string
-	HTML       *[]byte
+	Meta       []string // The actual html <meta> elements as text.
+	Resources  []string // the names (keys) of resources requested by this page
 }
 
 type configNode struct {
@@ -39,6 +41,7 @@ func newConfigNode() configNode {
 	return out
 }
 
+// Logical representation of the entire website
 type ConfigTree struct {
 	Root      *configNode
 	Resources map[string]Resource
@@ -46,6 +49,7 @@ type ConfigTree struct {
 	mu        sync.Mutex
 }
 
+// Create a new configNode from cfg and add it to the tree
 func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*configNode, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
@@ -260,7 +264,7 @@ func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
 	node := tree.Root
 	var child *configNode
 	var directory string
-	thisPath := util.PathToList(path)
+	thisPath := util.PathToList(path)[1:]
 	for _, directory = range thisPath {
 		child = node.Children[directory]
 		if child == nil {
@@ -269,7 +273,8 @@ func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
 		node = child
 	}
 	// there are previously undiscovered directories that need to be filled in
-	if directory != thisPath[len(thisPath)-1] {
+	if node.Path != path {
+		fmt.Printf("%+v\n", *node)
 		return nil, nil, fmt.Errorf("not found")
 	}
 	//log.Printf("%s: %+v\n\n", path, node.Resolved)
@@ -277,11 +282,13 @@ func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
 }
 
 type URLResource struct {
-	String string
+	String     string
+	Attributes map[string]string
 }
 
 type RawResource struct {
-	string
+	String     string
+	Attributes map[string]string
 }
 
 type HTMLHeadData struct {
@@ -306,9 +313,9 @@ func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Distillate) *HTML
 		var value interface{}
 		switch res.Method {
 		case "raw":
-			value = RawResource{res.Value}
+			value = RawResource{String: res.Value, Attributes: res.Attributes}
 		case "url":
-			value = URLResource{res.Value}
+			value = URLResource{String: res.Value, Attributes: res.Attributes}
 		default:
 			log.Printf("Unknown method for resource %s: %s\n", name, res.Type)
 		}

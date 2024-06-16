@@ -30,9 +30,10 @@ type PageData struct {
 }
 
 type Resource struct {
-	Type   string `yaml:"type,omitempty"`
-	Method string `yaml:"method,omitempty"`
-	Value  string `yaml:"value,omitempty"`
+	Type       string            `yaml:"type,omitempty"`
+	Method     string            `yaml:"method,omitempty"`
+	Value      string            `yaml:"value,omitempty"`
+	Attributes map[string]string `yaml:"attributes,omitempty"`
 }
 
 type HeadData struct {
