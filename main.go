@@ -83,7 +83,7 @@ func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	return buf, err
 }
 
-func buildHead(headData wmd.HTMLHeadData) ([]byte, error) {
+func buildHead(headData wmd.HTMLHeadData) *HTMLElement {
 	head := NewHTMLElement("head")
 	title := head.AppendNew("title")
 	title.AppendText(headData.Title)
@@ -110,19 +110,17 @@ func buildHead(headData wmd.HTMLHeadData) ([]byte, error) {
 		}
 	}
 	head.AppendText(strings.Join(headData.Meta, "\n"))
-	var text bytes.Buffer
-	RenderHTML(head, &text)
-	return text.Bytes(), nil
+	return head
 }
 
-func buildDocument(bodyHTML []byte, head wmd.HTMLHeadData) (bytes.Buffer, error) {
+func buildDocument(bodyHTML []byte, headData wmd.HTMLHeadData) (bytes.Buffer, error) {
 	var buf bytes.Buffer
-	buf.WriteString("<!DOCTYPE html>\n<html>\n")
-	headXML, _ := buildHead(head)
-	buf.Write(headXML)
-	buf.WriteString("<body><article><main>")
-	buf.Write(bodyHTML)
-	buf.WriteString("</main></article></body>\n</html>\n")
+	buf.WriteString("<!DOCTYPE html>\n")
+	document := NewHTMLElement("html")
+	head := buildHead(headData)
+	document.Append(head)
+	document.AppendNew("body").AppendNew("article").AppendNew("main").AppendText(string(bodyHTML))
+	RenderHTML(document, &buf)
 	return buf, nil
 }
 

@@ -264,7 +264,7 @@ func (tree *ConfigTree) Search(path string) (*WyWebMeta, *Distillate, error) {
 	node := tree.Root
 	var child *configNode
 	var directory string
-	thisPath := util.PathToList(path)[1:]
+	thisPath := util.PathToList(path)
 	for _, directory = range thisPath {
 		child = node.Children[directory]
 		if child == nil {

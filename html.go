@@ -41,6 +41,19 @@ func NewHTMLElement(tag string) *HTMLElement {
 	}
 }
 
+func (e *HTMLElement) increaseDepth(amt int) {
+	e.depth += amt
+	for _, child := range e.Children {
+		child.increaseDepth(amt)
+	}
+}
+
+func (e *HTMLElement) Append(elem *HTMLElement) {
+	e.Children = append(e.Children, elem)
+	depthDiff := e.depth - elem.depth
+	elem.increaseDepth(depthDiff + 1)
+}
+
 func (e *HTMLElement) AppendNew(tag string, attr ...map[string]string) *HTMLElement {
 	elem := NewHTMLElement(tag)
 	e.Children = append(e.Children, elem)
