@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"wyweb.site/wyweb/html"
 	"wyweb.site/wyweb/util"
@@ -33,6 +34,7 @@ type ConfigNode struct {
 	Tree     *ConfigTree
 	Resolved *Distillate
 	Path     string
+	Date     time.Time
 }
 
 func newConfigNode() ConfigNode {
@@ -156,6 +158,7 @@ func (node *ConfigNode) resolve() error {
 			Meta:       node.Parent.Resolved.Meta,
 			HTML:       nil,
 		}
+		node.Date = (*meta).GetPageData().Date
 		if !reflect.ValueOf(page.Author).IsZero() {
 			node.Resolved.Author = page.Author
 		}
@@ -183,7 +186,6 @@ func (node *ConfigNode) resolve() error {
 			}
 		}
 		excludes = util.ConcatUnique(excludes[:n], head.Exclude)
-
 		node.Resolved.Resources, _ = includeExclude(local, includes, excludes)
 	default:
 		log.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))

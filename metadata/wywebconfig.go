@@ -79,6 +79,7 @@ type WyWebPost struct {
 	HeadData `yaml:",inline"`
 	PageData `yaml:",inline"`
 	Index    string    `yaml:"index,omitempty"`
+	Preview  string    `yaml:"preview,omitempty"`
 	Tags     []string  `yaml:"tags,omitempty"`
 	Updated  time.Time `yaml:"updated,omitempty"`
 }

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -125,38 +126,24 @@ func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buff
 
 func buildListing(node *wmd.ConfigNode) error {
 	meta := (*node.Data).(*wmd.WyWebListing)
-	//filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
-	//	if path == dir {
-	//		return nil
-	//	}
-	//	if !info.IsDir() {
-	//		return nil
-	//	}
-	//	fmt.Println(path, info.Name())
-	//	wwFileName := filepath.Join(path, "wyweb")
-	//	_, e := os.Stat(wwFileName)
-	//	if e != nil {
-	//		return nil
-	//	}
-	//	meta, e := wmd.ReadWyWeb(path)
-	//	if e != nil {
-	//		fmt.Fprintf(os.Stderr, "%v\n", e)
-	//		return nil
-	//	}
-	//	buf.WriteString(`<a href="`)
-	//	buf.WriteString(path)
-	//	buf.WriteString(fmt.Sprintf(`">%s</a><br />`, meta.GetPageData().Title))
-	//	return nil
-	//})
 	page := NewHTMLElement("article")
 	page.AppendNew("nav", Class("navlinks"))
 	page.AppendNew("header", Class("listingheader")).AppendNew("h1").AppendText(meta.Title)
 	page.AppendNew("div", Class("description")).AppendText(meta.Description)
+	children := make([]wmd.ConfigNode, 0)
 	for _, child := range node.Children {
+		children = append(children, *child)
+	}
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].Date.After(children[j].Date)
+	})
+	for _, child := range children {
 		switch post := (*child.Data).(type) {
 		case *wmd.WyWebPost:
 			listing := page.AppendNew("div", Class("listing"))
-			listing.AppendNew("a", Href(post.Path)).AppendNew("h2").AppendText(post.Title)
+			link := listing.AppendNew("a", Href(post.Path))
+			link.AppendNew("h2").AppendText(post.Title)
+			listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
 			tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
 			tagcontainer.AppendText("Tags")
 			taglist := tagcontainer.AppendNew("div", Class("taglist"))

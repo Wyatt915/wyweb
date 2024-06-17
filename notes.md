@@ -3,6 +3,7 @@ Changes are being made to field names, field structures, and available fields
 ## Renamed fields
   - location → path
   - copyright_msg → copyright
+  - first_p → preview
 ## Changed fields
   - meta is now of type []string rather than string.
   - `include` is now of type []string and holds names of `resources`
