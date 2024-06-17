@@ -211,8 +211,6 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 
 	node, err := globalTree.Search(path)
-	meta := node.Data
-	resolved := node.Resolved
 	if err != nil {
 		_, ok := os.Stat(filepath.Join(path, "wyweb"))
 		if ok != nil {
@@ -220,9 +218,11 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(fileNotFound))
 			return
 		}
-		fmt.Printf("%+v\n\n%+v\n\n%+v\n", meta, resolved, err)
+		log.Printf("Bizarro error bruv\n")
 		return
 	}
+	meta := node.Data
+	resolved := node.Resolved
 	if node.Resolved.HTML == nil {
 		switch (*meta).(type) {
 		//case *WyWebRoot:
@@ -230,7 +230,9 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			buildListing(node)
 		case *wmd.WyWebPost:
 			buildPost(node)
-		//case *WyWebGallery:
+		case *wmd.WyWebGallery:
+			createThumbnails(node.Path, findImages(node.Path, []string{"jpg"}))
+			return
 		default:
 			fmt.Println("whoopsie")
 			return

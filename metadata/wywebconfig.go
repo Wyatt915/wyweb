@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,6 +228,7 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 	case "!gallery":
 		var gallery WyWebGallery
 		if err := node.Decode(&gallery); err != nil {
+			log.Printf("%+v\n", err)
 			return err
 		}
 		d.Data = &gallery

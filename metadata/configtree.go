@@ -210,6 +210,7 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 		}
 		meta, e := ReadWyWeb(path)
 		if e != nil {
+			log.Printf("couldn't read %s", path)
 			return nil
 		}
 		child := ConfigNode{
@@ -222,6 +223,7 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 		}
 		node.Children[filepath.Base(path)] = &child
 		child.resolve()
+		log.Printf("Growing tree from %s\n", path)
 		//child, _ := tree.RegisterConfig(meta)
 		child.growTree(path, tree)
 		return nil
@@ -269,15 +271,19 @@ func (tree *ConfigTree) Search(path string) (*ConfigNode, error) {
 	var directory string
 	thisPath := util.PathToList(path)
 	for _, directory = range thisPath {
+		log.Println(directory)
 		child = node.Children[directory]
 		if child == nil {
-			break
+			continue
 		}
 		node = child
+		if child.Path == path {
+			break
+		}
 	}
 	// there are previously undiscovered directories that need to be filled in
 	if node.Path != path {
-		fmt.Printf("%+v\n", *node)
+		log.Printf("path: %s\n%+v\n", path, *node)
 		return nil, fmt.Errorf("not found")
 	}
 	//log.Printf("%s: %+v\n\n", path, node.Resolved)
