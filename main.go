@@ -231,8 +231,7 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		case *wmd.WyWebPost:
 			buildPost(node)
 		case *wmd.WyWebGallery:
-			createThumbnails(node.Path, findImages(node.Path, []string{"jpg"}))
-			return
+			gallery(node)
 		default:
 			fmt.Println("whoopsie")
 			return

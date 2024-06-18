@@ -30,11 +30,20 @@ type HTMLElement struct {
 	Children   []*HTMLElement
 }
 
-func NewHTMLElement(tag string) *HTMLElement {
+func NewHTMLElement(tag string, attr ...map[string]string) *HTMLElement {
+	attributes := make(map[string]string)
+	for _, attributeList := range attr {
+		if attributeList == nil {
+			continue
+		}
+		for key, value := range attributeList {
+			attributes[key] = value
+		}
+	}
 	return &HTMLElement{
 		Tag:        tag,
 		Content:    "",
-		Attributes: make(map[string]string),
+		Attributes: attributes,
 		Children:   make([]*HTMLElement, 0),
 	}
 }

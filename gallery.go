@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -11,8 +12,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+
+	. "wyweb.site/wyweb/html"
+	wmd "wyweb.site/wyweb/metadata"
 )
 
 // Given a path and a list of file extensions ext, return all image filenames in the path.
@@ -48,11 +53,11 @@ func averageColor(rect *image.Image, x0, y0, x1, y1 int) color.RGBA64 {
 	out.R = uint16(r / n)
 	out.G = uint16(g / n)
 	out.B = uint16(b / n)
-	out.A = 0xffff
+	out.A = uint16(a / n)
 	return out
 }
 
-func scaleImage(img *image.Image) *image.Image {
+func scaleImage(img *image.Image, fast bool) *image.Image {
 	var scalefactor float32
 	maxWidth := 300
 	maxHeight := 300
@@ -72,20 +77,29 @@ func scaleImage(img *image.Image) *image.Image {
 	} else {
 		return img
 	}
-	var out image.Image
-	out = image.NewRGBA64(image.Rect(0, 0, width, height))
+	var out image.Image = image.NewRGBA64(image.Rect(0, 0, width, height))
 	var x0, y0 int
 	var x1, y1 int
-	for x := 0; x < width; x++ {
-		for y := 0; y < height; y++ {
-			x0 = int(float32(origWidth*x) / float32(width))
-			y0 = int(float32(origHeight*y) / float32(height))
-			x1 = int(float32(origWidth*(x+1)) / float32(width))
-			y1 = int(float32(origHeight*(y+1)) / float32(height))
-			//sub := (*img).(*image.RGBA64).SubImage(image.Rect(x0, y0, x1, y1))
-			//(*(out.(*image.RGBA64))).Set(x, y, averageColor(sub.(*image.RGBA64)))
-			//out.(draw.Image).Set(x, y, (*img).At(x0, y0))
-			out.(draw.Image).Set(x, y, averageColor(img, x0, y0, x1, y1))
+	if fast {
+		for x := 0; x < width; x++ {
+			for y := 0; y < height; y++ {
+				x0 = int(float32(origWidth*x) / float32(width))
+				y0 = int(float32(origHeight*y) / float32(height))
+				out.(draw.Image).Set(x, y, (*img).At(x0, y0))
+			}
+		}
+	} else {
+		for x := 0; x < width; x++ {
+			for y := 0; y < height; y++ {
+				x0 = int(float32(origWidth*x) / float32(width))
+				y0 = int(float32(origHeight*y) / float32(height))
+				x1 = int(float32(origWidth*(x+1)) / float32(width))
+				y1 = int(float32(origHeight*(y+1)) / float32(height))
+				//sub := (*img).(*image.RGBA64).SubImage(image.Rect(x0, y0, x1, y1))
+				//(*(out.(*image.RGBA64))).Set(x, y, averageColor(sub.(*image.RGBA64)))
+				//out.(draw.Image).Set(x, y, (*img).At(x0, y0))
+				out.(draw.Image).Set(x, y, averageColor(img, x0, y0, x1, y1))
+			}
 		}
 	}
 	return &out
@@ -117,8 +131,8 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 			return
 		}
 	}
-	thumbnail := scaleImage(&fullImg)
-	thumbFileName := filepath.Join(thumbdir, nameNoExt+".jpg")
+	thumbnail := scaleImage(&fullImg, true)
+	thumbFileName := filepath.Join(thumbdir, nameNoExt+".png")
 	thumbFile, err := os.Create(thumbFileName)
 	if err != nil {
 		log.Printf("WARN: could not open %s for writing.\n", thumbFileName)
@@ -127,10 +141,15 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 	//var out image.Image
 	//
 	//draw.Draw(
-	jpeg.Encode(thumbFile, *thumbnail, nil)
+	png.Encode(thumbFile, *thumbnail)
+}
+
+func removeExt(name string) string {
+	return strings.Split(name, filepath.Ext(name))[0]
 }
 
 func createThumbnails(path string, images []string) error {
+	defer timer("createThumbnails")()
 	thumbdir := filepath.Join(path, "thumbs")
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -142,13 +161,13 @@ func createThumbnails(path string, images []string) error {
 	}
 	thumbs := make([]string, 0)
 	filepath.WalkDir(thumbdir, func(path string, entry fs.DirEntry, err error) error {
-		thumbs = append(thumbs, entry.Name())
+		thumbs = append(thumbs, removeExt(entry.Name()))
 		return nil
 	})
 	var wg sync.WaitGroup
 	for _, imageFileName := range images {
 		basename := filepath.Base(imageFileName)
-		if slices.Contains(thumbs, basename) {
+		if slices.Contains(thumbs, removeExt(basename)) {
 			continue
 		}
 		wg.Add(1)
@@ -159,4 +178,50 @@ func createThumbnails(path string, images []string) error {
 	}
 	wg.Wait()
 	return nil
+}
+
+type fullAndThumb struct {
+	Full   string
+	Thumb  string
+	Aspect float32 // height / width
+}
+
+// Pair up full sized images with their thumbnails
+func pairUp(path string, fullsized []string) []fullAndThumb {
+	result := make([]fullAndThumb, 0)
+	thumbdir := filepath.Join(path, "thumbs")
+	thumbMap := make(map[string]string)
+	filepath.WalkDir(thumbdir, func(filename string, entry fs.DirEntry, err error) error {
+		thumbMap[removeExt(entry.Name())] = filename
+		return nil
+	})
+	for _, full := range fullsized {
+		thumb, ok := thumbMap[removeExt(filepath.Base(full))]
+		if !ok {
+			continue
+		}
+		result = append(result, fullAndThumb{Full: full, Thumb: thumb})
+	}
+	return result
+}
+
+func gallery(node *wmd.ConfigNode) {
+	extensions := []string{"jpg"}
+	fullsized := findImages(node.Path, extensions)
+	createThumbnails(node.Path, fullsized)
+	pairs := pairUp(node.Path, fullsized)
+	main := NewHTMLElement("main", Class("imagegallery"))
+	galleryElem := main.AppendNew("div", Class("gallery"))
+	galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
+	galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
+	for idx, pair := range pairs {
+		attr := map[string]string{
+			"src":            pair.Thumb,
+			"id":             fmt.Sprintf("imgseq-%d", idx),
+			"data-image-num": strconv.Itoa(idx),
+			"data-fullsize":  pair.Full,
+		}
+		galleryCol.AppendNew("img", Class("gallery-image"), attr)
+	}
+	node.Resolved.HTML = main
 }
