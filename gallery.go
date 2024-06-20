@@ -5,7 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	"image/jpeg"
+	_ "image/jpeg"
 	"image/png"
 	"io/fs"
 	"log"
@@ -37,9 +37,9 @@ func findImages(path string, extensions []string) []string {
 	return result
 }
 
-func averageColor(rect *image.Image, x0, y0, x1, y1 int) color.RGBA64 {
+func averageColor(rect *image.Image, x0, y0, x1, y1 int) color.RGBA {
 	var r, g, b, a int
-	var out color.RGBA64
+	var out color.RGBA
 	for x := x0; x < x1; x++ {
 		for y := y0; y < y1; y++ {
 			tempR, tempG, tempB, tempA := (*rect).At(x, y).RGBA()
@@ -50,10 +50,10 @@ func averageColor(rect *image.Image, x0, y0, x1, y1 int) color.RGBA64 {
 		}
 	}
 	n := (x1 - x0) * (y1 - y0)
-	out.R = uint16(r / n)
-	out.G = uint16(g / n)
-	out.B = uint16(b / n)
-	out.A = uint16(a / n)
+	out.R = uint8(r / n)
+	out.G = uint8(g / n)
+	out.B = uint8(b / n)
+	out.A = uint8(a / n)
 	return out
 }
 
@@ -106,30 +106,42 @@ func scaleImage(img *image.Image, fast bool) *image.Image {
 }
 
 func writeThumbnail(imageFileName string, thumbdir string) {
-	defer timer("writeThumbnail for " + imageFileName)()
 	imgFile, err := os.Open(imageFileName)
 	if err != nil {
 		log.Printf("WARN: Could not open %s.\n", imageFileName)
 		return
 	}
 	defer imgFile.Close()
-	ext := filepath.Ext(imageFileName)
 	basename := filepath.Base(imageFileName)
+	ext := filepath.Ext(basename)
 	nameNoExt := strings.Split(basename, ext)[0]
+	//_, format, err := image.DecodeConfig(imgFile)
+	//if err != nil {
+	//	log.Printf("WARN: could not decode %s as any known image type.\n", imageFileName)
+	//	return
+	//}
 	var fullImg image.Image
-	switch ext {
-	case ".jpg", ".jpeg":
-		fullImg, err = jpeg.Decode(imgFile)
-		if err != nil {
-			log.Printf("WARN: could not decode %s as jpeg.\n", imageFileName)
-			return
-		}
-	case ".png":
-		fullImg, err = png.Decode(imgFile)
-		if err != nil {
-			log.Printf("WARN: could not decode %s as png.\n", imageFileName)
-			return
-		}
+	//switch format {
+	//case "jpeg":
+	//	fullImg, err = jpeg.Decode(imgFile)
+	//	if err != nil {
+	//		log.Printf("WARN: could not decode %s as jpeg.\n", imageFileName)
+	//		log.Println(err)
+	//		return
+	//	}
+	//case "png":
+	//	fullImg, err = png.Decode(imgFile)
+	//	if err != nil {
+	//		log.Printf("WARN: could not decode %s as png.\n", imageFileName)
+	//		log.Println(err)
+	//		return
+	//	}
+	//default:
+	//	log.Printf("%s has unknown format %s\n", imageFileName, format)
+	//}
+	fullImg, _, err = image.Decode(imgFile)
+	if err != nil {
+		log.Println(err)
 	}
 	thumbnail := scaleImage(&fullImg, true)
 	thumbFileName := filepath.Join(thumbdir, nameNoExt+".png")
@@ -138,10 +150,11 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 		log.Printf("WARN: could not open %s for writing.\n", thumbFileName)
 		return
 	}
+	defer thumbFile.Close()
 	//var out image.Image
 	//
 	//draw.Draw(
-	png.Encode(thumbFile, *thumbnail)
+	println(thumbFileName, png.Encode(thumbFile, *thumbnail))
 }
 
 func removeExt(name string) string {
@@ -151,6 +164,7 @@ func removeExt(name string) string {
 func createThumbnails(path string, images []string) error {
 	defer timer("createThumbnails")()
 	thumbdir := filepath.Join(path, "thumbs")
+	println(thumbdir)
 	stat, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -202,26 +216,197 @@ func pairUp(path string, fullsized []string) []fullAndThumb {
 		}
 		result = append(result, fullAndThumb{Full: full, Thumb: thumb})
 	}
+	for idx, res := range result {
+		thumbFile, err := os.Open(res.Thumb)
+		if err != nil {
+			continue
+		}
+		config, _, err := image.DecodeConfig(thumbFile)
+		if err != nil {
+			continue
+		}
+		result[idx].Aspect = float32(config.Height) / float32(config.Width)
+	}
 	return result
 }
 
+func calcTotalHeight(pairs []fullAndThumb) float32 {
+	var totalHeight float32
+	for _, img := range pairs {
+		totalHeight += img.Aspect
+	}
+	return totalHeight
+}
+
+func calcLoss(grid *[][]fullAndThumb, target float32) float32 {
+	var loss float32
+	for _, col := range *grid {
+		difference := calcTotalHeight(col) - target
+		loss += difference * difference
+	}
+	return loss
+}
+
+type coord struct {
+	x int
+	y int
+}
+
+type imgSwap struct {
+	posA  coord
+	posB  coord
+	score float32
+}
+
+// records a move from pos to a different column col
+type imgMove struct {
+	pos   coord
+	col   int
+	score float32
+}
+
+func doMove(grid *[][]fullAndThumb, mv imgMove, target float32) float32 {
+	img := (*grid)[mv.pos.x][mv.pos.y]
+	(*grid)[mv.pos.x] = append((*grid)[mv.pos.x][:mv.pos.y], (*grid)[mv.pos.x][mv.pos.y+1:]...) // cut
+	(*grid)[mv.col] = append((*grid)[mv.col], img)                                              // paste
+	return calcLoss(grid, target)
+}
+func tryMove(grid *[][]fullAndThumb, mv imgMove, target float32) float32 {
+	loss := doMove(grid, mv, target)
+	img := (*grid)[mv.col][len((*grid)[mv.col])-1]
+	(*grid)[mv.col] = (*grid)[mv.col][:len((*grid)[mv.col])-1]
+	(*grid)[mv.pos.x] = append((*grid)[mv.pos.x][:mv.pos.y], append([]fullAndThumb{img}, (*grid)[mv.pos.x][mv.pos.y:]...)...)
+	return loss
+}
+
+func doSwap(grid *[][]fullAndThumb, sw imgSwap, target float32) float32 {
+	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
+	return calcLoss(grid, target)
+}
+func trySwap(grid *[][]fullAndThumb, sw imgSwap, target float32) float32 {
+	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
+	loss := calcLoss(grid, target)
+	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
+	return loss
+}
+
+// Some kind of hill climbing algorithm. Perhaps a good candidate for simulated annealing?
+func optimizeArrangement(grid [][]fullAndThumb, target float32, arr *HTMLElement) {
+	loss := calcLoss(&grid, target)
+	keepGoing := true
+	num := 0
+	for _, col := range grid {
+		num += len(col)
+	}
+	coords := make([]coord, num)
+	var bestMove imgMove
+	var bestSwap imgSwap
+	for keepGoing {
+		bestMove.score = loss
+		bestSwap.score = loss
+		log.Printf("Loss: %.3f", loss)
+		galleryRow := arr.AppendNew("div", Class("galleryrow"))
+		keepGoing = false
+		num = 0
+		for x := 0; x < len(grid); x++ {
+			for y := 0; y < len(grid[x]); y++ {
+				coords[num] = coord{x, y}
+				num++
+			}
+		}
+		for i := range coords {
+			pos := coords[i]
+			for col := range grid {
+				if col == pos.x {
+					continue
+				}
+
+				improvement := tryMove(&grid, imgMove{pos, col, 0}, target)
+				if improvement < bestMove.score {
+					keepGoing = true
+					bestMove = imgMove{pos, col, improvement}
+				}
+			}
+			for j := i + 1; j < len(coords); j++ {
+				sw := imgSwap{coords[i], coords[j], 0}
+				improvement := trySwap(&grid, sw, target)
+				if improvement < bestSwap.score {
+					keepGoing = true
+					bestSwap = imgSwap{coords[i], coords[j], improvement}
+				}
+			}
+		}
+
+		if keepGoing {
+			if bestMove.score < bestSwap.score {
+				log.Printf("Move: %+v", bestMove)
+				loss = doMove(&grid, bestMove, target)
+			} else if bestSwap.score < bestMove.score {
+				log.Printf("Swap: %+v", bestSwap)
+				loss = doSwap(&grid, bestSwap, target)
+			}
+		}
+		for _, col := range grid {
+			galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
+			for idx, pair := range col {
+				attr := map[string]string{
+					"src":            pair.Thumb,
+					"id":             fmt.Sprintf("imgseq-%d", idx),
+					"data-image-num": strconv.Itoa(idx),
+					"data-fullsize":  pair.Full,
+				}
+				galleryCol.AppendNew("img", Class("gallery-image"), attr)
+			}
+		}
+		arr.AppendNew("hr")
+	}
+}
+
+func arrangeImages(pairs []fullAndThumb, columns int, page *HTMLElement) {
+	defer timer("arrangeImages")()
+	arr := page.AppendNew("div", Class("gallery"))
+	out := make([][]fullAndThumb, columns)
+	for i := 0; i < columns; i++ {
+		out[i] = make([]fullAndThumb, 0)
+	}
+	//assume all images have a width of 1. Then the sum of their aspect ratios will be the total height.
+	totalHeight := calcTotalHeight(pairs)
+	targetHeight := totalHeight / float32(columns)
+	// First we try to put the same number of images in each column
+	n := 0
+	imgPerCol := len(pairs) / columns
+	for idx, img := range pairs {
+		if (idx / (n + 1)) > imgPerCol {
+			n++
+		}
+		out[n] = append(out[n], img)
+	}
+	optimizeArrangement(out, targetHeight, arr)
+	//return out
+}
+
 func gallery(node *wmd.ConfigNode) {
-	extensions := []string{"jpg"}
+	extensions := []string{"jpg", "png"}
 	fullsized := findImages(node.Path, extensions)
 	createThumbnails(node.Path, fullsized)
 	pairs := pairUp(node.Path, fullsized)
 	main := NewHTMLElement("main", Class("imagegallery"))
-	galleryElem := main.AppendNew("div", Class("gallery"))
-	galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
-	galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
-	for idx, pair := range pairs {
-		attr := map[string]string{
-			"src":            pair.Thumb,
-			"id":             fmt.Sprintf("imgseq-%d", idx),
-			"data-image-num": strconv.Itoa(idx),
-			"data-fullsize":  pair.Full,
-		}
-		galleryCol.AppendNew("img", Class("gallery-image"), attr)
-	}
+	arrangeImages(pairs, 4, main)
+	//galleryElem := main.AppendNew("div", Class("gallery"))
+	//galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
+	//numCols := 4
+	//for col := 0; col < numCols; col++ {
+	//	galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
+	//	for idx, pair := range pairs {
+	//		attr := map[string]string{
+	//			"src":            pair.Thumb,
+	//			"id":             fmt.Sprintf("imgseq-%d", idx),
+	//			"data-image-num": strconv.Itoa(idx),
+	//			"data-fullsize":  pair.Full,
+	//		}
+	//		galleryCol.AppendNew("img", Class("gallery-image"), attr)
+	//	}
+	//}
+
 	node.Resolved.HTML = main
 }
