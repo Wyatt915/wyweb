@@ -194,15 +194,15 @@ func createThumbnails(path string, images []string) error {
 	return nil
 }
 
-type fullAndThumb struct {
+type imgPair struct {
 	Full   string
 	Thumb  string
 	Aspect float32 // height / width
 }
 
 // Pair up full sized images with their thumbnails
-func pairUp(path string, fullsized []string) []fullAndThumb {
-	result := make([]fullAndThumb, 0)
+func pairUp(path string, fullsized []string) []imgPair {
+	result := make([]imgPair, 0)
 	thumbdir := filepath.Join(path, "thumbs")
 	thumbMap := make(map[string]string)
 	filepath.WalkDir(thumbdir, func(filename string, entry fs.DirEntry, err error) error {
@@ -214,7 +214,7 @@ func pairUp(path string, fullsized []string) []fullAndThumb {
 		if !ok {
 			continue
 		}
-		result = append(result, fullAndThumb{Full: full, Thumb: thumb})
+		result = append(result, imgPair{Full: full, Thumb: thumb})
 	}
 	for idx, res := range result {
 		thumbFile, err := os.Open(res.Thumb)
@@ -230,7 +230,7 @@ func pairUp(path string, fullsized []string) []fullAndThumb {
 	return result
 }
 
-func calcTotalHeight(pairs []fullAndThumb) float32 {
+func calcTotalHeight(pairs []imgPair) float32 {
 	var totalHeight float32
 	for _, img := range pairs {
 		totalHeight += img.Aspect
@@ -238,7 +238,7 @@ func calcTotalHeight(pairs []fullAndThumb) float32 {
 	return totalHeight
 }
 
-func calcLoss(grid *[][]fullAndThumb, target float32) float32 {
+func calcLoss(grid *[][]imgPair, target float32) float32 {
 	var loss float32
 	for _, col := range *grid {
 		difference := calcTotalHeight(col) - target
@@ -265,25 +265,25 @@ type imgMove struct {
 	score float32
 }
 
-func doMove(grid *[][]fullAndThumb, mv imgMove, target float32) float32 {
+func doMove(grid *[][]imgPair, mv imgMove, target float32) float32 {
 	img := (*grid)[mv.pos.x][mv.pos.y]
 	(*grid)[mv.pos.x] = append((*grid)[mv.pos.x][:mv.pos.y], (*grid)[mv.pos.x][mv.pos.y+1:]...) // cut
 	(*grid)[mv.col] = append((*grid)[mv.col], img)                                              // paste
 	return calcLoss(grid, target)
 }
-func tryMove(grid *[][]fullAndThumb, mv imgMove, target float32) float32 {
+func tryMove(grid *[][]imgPair, mv imgMove, target float32) float32 {
 	loss := doMove(grid, mv, target)
 	img := (*grid)[mv.col][len((*grid)[mv.col])-1]
 	(*grid)[mv.col] = (*grid)[mv.col][:len((*grid)[mv.col])-1]
-	(*grid)[mv.pos.x] = append((*grid)[mv.pos.x][:mv.pos.y], append([]fullAndThumb{img}, (*grid)[mv.pos.x][mv.pos.y:]...)...)
+	(*grid)[mv.pos.x] = append((*grid)[mv.pos.x][:mv.pos.y], append([]imgPair{img}, (*grid)[mv.pos.x][mv.pos.y:]...)...)
 	return loss
 }
 
-func doSwap(grid *[][]fullAndThumb, sw imgSwap, target float32) float32 {
+func doSwap(grid *[][]imgPair, sw imgSwap, target float32) float32 {
 	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
 	return calcLoss(grid, target)
 }
-func trySwap(grid *[][]fullAndThumb, sw imgSwap, target float32) float32 {
+func trySwap(grid *[][]imgPair, sw imgSwap, target float32) float32 {
 	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
 	loss := calcLoss(grid, target)
 	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
@@ -291,7 +291,13 @@ func trySwap(grid *[][]fullAndThumb, sw imgSwap, target float32) float32 {
 }
 
 // Some kind of hill climbing algorithm. Perhaps a good candidate for simulated annealing?
-func optimizeArrangement(grid [][]fullAndThumb, target float32, arr *HTMLElement) {
+func optimizeArrangement(grid [][]imgPair) [][]imgPair {
+	//assume all images have a width of 1. Then the sum of their aspect ratios will be the total height.
+	var totalHeight float32
+	for _, pairs := range grid {
+		totalHeight += calcTotalHeight(pairs)
+	}
+	target := totalHeight / float32(len(grid))
 	loss := calcLoss(&grid, target)
 	keepGoing := true
 	num := 0
@@ -301,11 +307,13 @@ func optimizeArrangement(grid [][]fullAndThumb, target float32, arr *HTMLElement
 	coords := make([]coord, num)
 	var bestMove imgMove
 	var bestSwap imgSwap
+	counter := 0
 	for keepGoing {
+		counter++
 		bestMove.score = loss
 		bestSwap.score = loss
-		log.Printf("Loss: %.3f", loss)
-		galleryRow := arr.AppendNew("div", Class("galleryrow"))
+		log.Printf("Loss: %f", loss)
+		//		galleryRow := arr.AppendNew("div", Class("galleryrow"))
 		keepGoing = false
 		num = 0
 		for x := 0; x < len(grid); x++ {
@@ -337,41 +345,74 @@ func optimizeArrangement(grid [][]fullAndThumb, target float32, arr *HTMLElement
 			}
 		}
 
+		//for _, col := range grid {
+		//	galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
+		//	for idx, pair := range col {
+		//		attr := map[string]string{
+		//			"src":            pair.Thumb,
+		//			"id":             fmt.Sprintf("imgseq-%d", idx),
+		//			"data-image-num": strconv.Itoa(idx),
+		//			"data-fullsize":  pair.Full,
+		//		}
+		//		galleryCol.AppendNew("img", Class("gallery-image"), attr)
+		//	}
+		//}
 		if keepGoing {
 			if bestMove.score < bestSwap.score {
-				log.Printf("Move: %+v", bestMove)
 				loss = doMove(&grid, bestMove, target)
 			} else if bestSwap.score < bestMove.score {
-				log.Printf("Swap: %+v", bestSwap)
 				loss = doSwap(&grid, bestSwap, target)
 			}
 		}
-		for _, col := range grid {
-			galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
-			for idx, pair := range col {
-				attr := map[string]string{
-					"src":            pair.Thumb,
-					"id":             fmt.Sprintf("imgseq-%d", idx),
-					"data-image-num": strconv.Itoa(idx),
-					"data-fullsize":  pair.Full,
-				}
-				galleryCol.AppendNew("img", Class("gallery-image"), attr)
-			}
-		}
-		arr.AppendNew("hr")
+		//	arr.AppendNew("hr")
 	}
+	log.Printf("Arrangement completed after %d iterations\n", counter)
+	return grid
 }
 
-func arrangeImages(pairs []fullAndThumb, columns int, page *HTMLElement) {
-	defer timer("arrangeImages")()
-	arr := page.AppendNew("div", Class("gallery"))
-	out := make([][]fullAndThumb, columns)
+// try to minimize loss on the first pass of filling the grid
+//func prefill(pairs []imgPair, columns int) [][]imgPair {
+//	heights := make([]float32, columns)
+//	out := make([][]imgPair, columns)
+//	for i := 0; i < columns; i++ {
+//		out[i] = make([]imgPair, 0)
+//	}
+//	var totalHeight float32
+//	var target float32
+//	for _, pair := range pairs {
+//		totalHeight += pair.Aspect
+//		target = totalHeight / float32(columns)
+//		var loss float32
+//		var record float32 = math.MaxFloat32
+//		var choice int
+//		for i := range columns {
+//			heights[i] = calcTotalHeight(out[i])
+//		}
+//		for i := range columns {
+//			loss = 0
+//			for j := range columns {
+//				difference := heights[i] - target
+//				if i == j {
+//					difference += pair.Aspect
+//				}
+//				loss += difference * difference
+//			}
+//			if loss < record {
+//				record = loss
+//				choice = i
+//			}
+//		}
+//		out[choice] = append(out[choice], pair)
+//	}
+//	log.Printf("Initial Loss: %f", calcLoss(&out, target))
+//	return out
+//}
+
+func prefill(pairs []imgPair, columns int) [][]imgPair {
+	prep := make([][]imgPair, columns)
 	for i := 0; i < columns; i++ {
-		out[i] = make([]fullAndThumb, 0)
+		prep[i] = make([]imgPair, 0)
 	}
-	//assume all images have a width of 1. Then the sum of their aspect ratios will be the total height.
-	totalHeight := calcTotalHeight(pairs)
-	targetHeight := totalHeight / float32(columns)
 	// First we try to put the same number of images in each column
 	n := 0
 	imgPerCol := len(pairs) / columns
@@ -379,10 +420,51 @@ func arrangeImages(pairs []fullAndThumb, columns int, page *HTMLElement) {
 		if (idx / (n + 1)) > imgPerCol {
 			n++
 		}
-		out[n] = append(out[n], img)
+		prep[n] = append(prep[n], img)
 	}
-	optimizeArrangement(out, targetHeight, arr)
-	//return out
+	return prep
+}
+
+// bisect the list until each sublist is at most limit.
+func partition(parts [][]imgPair, limit int) [][]imgPair {
+	out := make([][]imgPair, 0)
+	for _, part := range parts {
+		n := len(part)
+		if n < limit {
+			out = append(out, part)
+		} else {
+			out = append(out, partition([][]imgPair{part[:n/2], part[n/2:]}, limit)...)
+		}
+	}
+	return out
+}
+
+func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair {
+	defer timer("arrangeImages")()
+	//arr := page.AppendNew("div", Class("gallery"))
+	out := make([][]imgPair, columns)
+	for i := 0; i < columns; i++ {
+		out[i] = make([]imgPair, 0)
+	}
+	sublists := partition([][]imgPair{pairs}, 32)
+	subgrids := make([][][]imgPair, len(sublists))
+	var wg sync.WaitGroup
+	for i, sublist := range sublists {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			prep := prefill(sublist, columns)
+			subgrids[i] = optimizeArrangement(prep)
+		}()
+	}
+	wg.Wait()
+	for col := range columns {
+		for _, grid := range subgrids {
+			out[col] = append(out[col], grid[col]...)
+		}
+	}
+	//prep := prefill(pairs, columns)
+	return out
 }
 
 func gallery(node *wmd.ConfigNode) {
@@ -391,22 +473,21 @@ func gallery(node *wmd.ConfigNode) {
 	createThumbnails(node.Path, fullsized)
 	pairs := pairUp(node.Path, fullsized)
 	main := NewHTMLElement("main", Class("imagegallery"))
-	arrangeImages(pairs, 4, main)
-	//galleryElem := main.AppendNew("div", Class("gallery"))
-	//galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
-	//numCols := 4
-	//for col := 0; col < numCols; col++ {
-	//	galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
-	//	for idx, pair := range pairs {
-	//		attr := map[string]string{
-	//			"src":            pair.Thumb,
-	//			"id":             fmt.Sprintf("imgseq-%d", idx),
-	//			"data-image-num": strconv.Itoa(idx),
-	//			"data-fullsize":  pair.Full,
-	//		}
-	//		galleryCol.AppendNew("img", Class("gallery-image"), attr)
-	//	}
-	//}
+	grid := arrangeImages(pairs, 6, main)
+	galleryElem := main.AppendNew("div", Class("gallery"))
+	galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
+	for _, col := range grid {
+		galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
+		for idx, pair := range col {
+			attr := map[string]string{
+				"src":            pair.Thumb,
+				"id":             fmt.Sprintf("imgseq-%d", idx),
+				"data-image-num": strconv.Itoa(idx),
+				"data-fullsize":  pair.Full,
+			}
+			galleryCol.AppendNew("img", Class("gallery-image"), attr)
+		}
+	}
 
 	node.Resolved.HTML = main
 }
