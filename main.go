@@ -57,11 +57,12 @@ func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			wwExt.EmbedMedia(),
+			wwExt.AttributeList(),
 			wwExt.LinkRewrite(subdir),
 			//mathjax.MathJax,
 			extension.GFM,
 			highlighting.NewHighlighting(
-				highlighting.WithStyle("rainbow_dash"),
+				highlighting.WithStyle("monokai"),
 				highlighting.WithFormatOptions(
 					chromahtml.WithLineNumbers(true),
 					//chromahtml.WithClasses(true),
@@ -258,7 +259,7 @@ func dumpStyles() {
 }
 
 func main() {
-	dumpStyles()
+	//dumpStyles()
 	sockfile := "/tmp/wyweb.sock"
 	socket, err := net.Listen("unix", sockfile)
 	check(err)
