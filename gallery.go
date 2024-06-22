@@ -38,29 +38,30 @@ func findImages(path string, extensions []string) []string {
 }
 
 func averageColor(rect *image.Image, x0, y0, x1, y1 int) color.RGBA {
-	var r, g, b, a int
+	var r, g, b, a uint32
 	var out color.RGBA
+	var n uint32
 	for x := x0; x < x1; x++ {
 		for y := y0; y < y1; y++ {
 			tempR, tempG, tempB, tempA := (*rect).At(x, y).RGBA()
-			r += int(tempR)
-			g += int(tempG)
-			b += int(tempB)
-			a += int(tempA)
+			r += uint32(tempR)
+			g += uint32(tempG)
+			b += uint32(tempB)
+			a += uint32(tempA)
+			n++
 		}
 	}
-	n := (x1 - x0) * (y1 - y0)
 	out.R = uint8(r / n)
 	out.G = uint8(g / n)
 	out.B = uint8(b / n)
-	out.A = uint8(a / n)
+	out.A = uint8(255)
 	return out
 }
 
 func scaleImage(img *image.Image, fast bool) *image.Image {
 	var scalefactor float32
-	maxWidth := 300
-	maxHeight := 300
+	maxWidth := 600
+	maxHeight := 600
 	origHeight := (*img).Bounds().Dy()
 	origWidth := (*img).Bounds().Dx()
 	invHeightRatio := float32(maxHeight) / float32(origHeight)
@@ -77,27 +78,24 @@ func scaleImage(img *image.Image, fast bool) *image.Image {
 	} else {
 		return img
 	}
-	var out image.Image = image.NewRGBA64(image.Rect(0, 0, width, height))
+	var out image.Image = image.NewRGBA(image.Rect(0, 0, width, height))
 	var x0, y0 int
 	var x1, y1 int
 	if fast {
 		for x := 0; x < width; x++ {
 			for y := 0; y < height; y++ {
-				x0 = int(float32(origWidth*x) / float32(width))
-				y0 = int(float32(origHeight*y) / float32(height))
+				x0 = (origWidth * x) / width
+				y0 = (origHeight * y) / height
 				out.(draw.Image).Set(x, y, (*img).At(x0, y0))
 			}
 		}
 	} else {
 		for x := 0; x < width; x++ {
 			for y := 0; y < height; y++ {
-				x0 = int(float32(origWidth*x) / float32(width))
-				y0 = int(float32(origHeight*y) / float32(height))
-				x1 = int(float32(origWidth*(x+1)) / float32(width))
-				y1 = int(float32(origHeight*(y+1)) / float32(height))
-				//sub := (*img).(*image.RGBA64).SubImage(image.Rect(x0, y0, x1, y1))
-				//(*(out.(*image.RGBA64))).Set(x, y, averageColor(sub.(*image.RGBA64)))
-				//out.(draw.Image).Set(x, y, (*img).At(x0, y0))
+				x0 = (origWidth * x) / width
+				y0 = (origHeight * y) / height
+				x1 = (origWidth * (x + 1)) / width
+				y1 = (origHeight * (y + 1)) / height
 				out.(draw.Image).Set(x, y, averageColor(img, x0, y0, x1, y1))
 			}
 		}
@@ -115,31 +113,10 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 	basename := filepath.Base(imageFileName)
 	ext := filepath.Ext(basename)
 	nameNoExt := strings.Split(basename, ext)[0]
-	//_, format, err := image.DecodeConfig(imgFile)
-	//if err != nil {
-	//	log.Printf("WARN: could not decode %s as any known image type.\n", imageFileName)
-	//	return
-	//}
 	var fullImg image.Image
-	//switch format {
-	//case "jpeg":
-	//	fullImg, err = jpeg.Decode(imgFile)
-	//	if err != nil {
-	//		log.Printf("WARN: could not decode %s as jpeg.\n", imageFileName)
-	//		log.Println(err)
-	//		return
-	//	}
-	//case "png":
-	//	fullImg, err = png.Decode(imgFile)
-	//	if err != nil {
-	//		log.Printf("WARN: could not decode %s as png.\n", imageFileName)
-	//		log.Println(err)
-	//		return
-	//	}
-	//default:
-	//	log.Printf("%s has unknown format %s\n", imageFileName, format)
-	//}
-	fullImg, _, err = image.Decode(imgFile)
+	var format string
+	fullImg, format, err = image.Decode(imgFile)
+	println(imgFile, format)
 	if err != nil {
 		log.Println(err)
 	}
@@ -151,10 +128,7 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 		return
 	}
 	defer thumbFile.Close()
-	//var out image.Image
-	//
-	//draw.Draw(
-	println(thumbFileName, png.Encode(thumbFile, *thumbnail))
+	png.Encode(thumbFile, *thumbnail)
 }
 
 func removeExt(name string) string {
@@ -252,6 +226,7 @@ type coord struct {
 	y int
 }
 
+// records which two images are to be swapped
 type imgSwap struct {
 	posA  coord
 	posB  coord
@@ -312,8 +287,6 @@ func optimizeArrangement(grid [][]imgPair) [][]imgPair {
 		counter++
 		bestMove.score = loss
 		bestSwap.score = loss
-		log.Printf("Loss: %f", loss)
-		//		galleryRow := arr.AppendNew("div", Class("galleryrow"))
 		keepGoing = false
 		num = 0
 		for x := 0; x < len(grid); x++ {
@@ -336,6 +309,10 @@ func optimizeArrangement(grid [][]imgPair) [][]imgPair {
 				}
 			}
 			for j := i + 1; j < len(coords); j++ {
+				//for j := range coords {
+				//	if i == j {
+				//		continue
+				//	}
 				sw := imgSwap{coords[i], coords[j], 0}
 				improvement := trySwap(&grid, sw, target)
 				if improvement < bestSwap.score {
@@ -345,18 +322,6 @@ func optimizeArrangement(grid [][]imgPair) [][]imgPair {
 			}
 		}
 
-		//for _, col := range grid {
-		//	galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
-		//	for idx, pair := range col {
-		//		attr := map[string]string{
-		//			"src":            pair.Thumb,
-		//			"id":             fmt.Sprintf("imgseq-%d", idx),
-		//			"data-image-num": strconv.Itoa(idx),
-		//			"data-fullsize":  pair.Full,
-		//		}
-		//		galleryCol.AppendNew("img", Class("gallery-image"), attr)
-		//	}
-		//}
 		if keepGoing {
 			if bestMove.score < bestSwap.score {
 				loss = doMove(&grid, bestMove, target)
@@ -364,49 +329,9 @@ func optimizeArrangement(grid [][]imgPair) [][]imgPair {
 				loss = doSwap(&grid, bestSwap, target)
 			}
 		}
-		//	arr.AppendNew("hr")
 	}
-	log.Printf("Arrangement completed after %d iterations\n", counter)
 	return grid
 }
-
-// try to minimize loss on the first pass of filling the grid
-//func prefill(pairs []imgPair, columns int) [][]imgPair {
-//	heights := make([]float32, columns)
-//	out := make([][]imgPair, columns)
-//	for i := 0; i < columns; i++ {
-//		out[i] = make([]imgPair, 0)
-//	}
-//	var totalHeight float32
-//	var target float32
-//	for _, pair := range pairs {
-//		totalHeight += pair.Aspect
-//		target = totalHeight / float32(columns)
-//		var loss float32
-//		var record float32 = math.MaxFloat32
-//		var choice int
-//		for i := range columns {
-//			heights[i] = calcTotalHeight(out[i])
-//		}
-//		for i := range columns {
-//			loss = 0
-//			for j := range columns {
-//				difference := heights[i] - target
-//				if i == j {
-//					difference += pair.Aspect
-//				}
-//				loss += difference * difference
-//			}
-//			if loss < record {
-//				record = loss
-//				choice = i
-//			}
-//		}
-//		out[choice] = append(out[choice], pair)
-//	}
-//	log.Printf("Initial Loss: %f", calcLoss(&out, target))
-//	return out
-//}
 
 func prefill(pairs []imgPair, columns int) [][]imgPair {
 	prep := make([][]imgPair, columns)
@@ -446,7 +371,7 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	for i := 0; i < columns; i++ {
 		out[i] = make([]imgPair, 0)
 	}
-	sublists := partition([][]imgPair{pairs}, 32)
+	sublists := partition([][]imgPair{pairs}, 64)
 	subgrids := make([][][]imgPair, len(sublists))
 	var wg sync.WaitGroup
 	for i, sublist := range sublists {
@@ -463,7 +388,6 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 			out[col] = append(out[col], grid[col]...)
 		}
 	}
-	//prep := prefill(pairs, columns)
 	return out
 }
 
@@ -472,22 +396,24 @@ func gallery(node *wmd.ConfigNode) {
 	fullsized := findImages(node.Path, extensions)
 	createThumbnails(node.Path, fullsized)
 	pairs := pairUp(node.Path, fullsized)
-	main := NewHTMLElement("main", Class("imagegallery"))
-	grid := arrangeImages(pairs, 6, main)
+	main := NewHTMLElement("body", Class("imagegallery"))
+	grid := arrangeImages(pairs, 4, main)
 	galleryElem := main.AppendNew("div", Class("gallery"))
 	galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
+	imageNum := 0
 	for _, col := range grid {
 		galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
-		for idx, pair := range col {
+		for _, pair := range col {
 			attr := map[string]string{
 				"src":            pair.Thumb,
-				"id":             fmt.Sprintf("imgseq-%d", idx),
-				"data-image-num": strconv.Itoa(idx),
+				"id":             fmt.Sprintf("imgseq-%d", imageNum),
+				"data-image-num": strconv.Itoa(imageNum),
 				"data-fullsize":  pair.Full,
+				"loading":        "lazy",
 			}
 			galleryCol.AppendNew("img", Class("gallery-image"), attr)
+			imageNum++
 		}
 	}
-
 	node.Resolved.HTML = main
 }

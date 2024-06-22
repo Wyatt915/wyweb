@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"net"
@@ -15,17 +16,15 @@ import (
 	"syscall"
 	"time"
 
-	//"gopkg.in/yaml.v3"
-	"bytes"
-
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 
-	"wyweb.site/wyweb/extensions"
+	wwExt "wyweb.site/wyweb/extensions"
 	. "wyweb.site/wyweb/html"
 	wmd "wyweb.site/wyweb/metadata"
 )
@@ -57,13 +56,17 @@ func mdConvert(text []byte, subdir string) (bytes.Buffer, error) {
 	defer timer("mdConvert")()
 	md := goldmark.New(
 		goldmark.WithExtensions(
-			extensions.EmbedMedia(),
-			extensions.LinkRewrite(subdir),
+			wwExt.EmbedMedia(),
+			wwExt.LinkRewrite(subdir),
+			//mathjax.MathJax,
 			extension.GFM,
 			highlighting.NewHighlighting(
-				highlighting.WithStyle("monokai"),
+				highlighting.WithStyle("rainbow_dash"),
 				highlighting.WithFormatOptions(
 					chromahtml.WithLineNumbers(true),
+					//chromahtml.WithClasses(true),
+					//chromahtml.ClassPrefix("ch"),
+					//		chromahtml.LineNumbersInTable(true),
 				),
 			),
 		),
@@ -119,7 +122,7 @@ func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buff
 	buf.WriteString("<!DOCTYPE html>\n")
 	document := NewHTMLElement("html")
 	document.Append(buildHead(headData))
-	document.AppendNew("body").Append(bodyHTML)
+	document.Append(bodyHTML)
 	RenderHTML(document, &buf)
 	return buf, nil
 }
@@ -189,7 +192,7 @@ func buildPost(node *wmd.ConfigNode) {
 	}
 	check(err)
 	temp, _ := mdConvert(mdtext, meta.Path)
-	article := NewHTMLElement("article")
+	article := NewHTMLElement("body").AppendNew("article")
 	article.AppendText(temp.String())
 	resolved.HTML = article
 }
@@ -242,7 +245,20 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 }
 
+func dumpStyles() {
+	formatter := chromahtml.New(chromahtml.WithClasses(true))
+	css, err := os.Create("monokai.css")
+	check(err)
+	defer css.Close()
+	style := styles.Get("monokai")
+	formatter.WriteCSS(css, style)
+	for _, sty := range styles.Names() {
+		println(sty)
+	}
+}
+
 func main() {
+	dumpStyles()
 	sockfile := "/tmp/wyweb.sock"
 	socket, err := net.Listen("unix", sockfile)
 	check(err)

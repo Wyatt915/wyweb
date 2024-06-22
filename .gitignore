@@ -2,6 +2,7 @@
 *.png
 *.webm
 *.mp3
+*.css
 wyweb
 resources/
 test-site/

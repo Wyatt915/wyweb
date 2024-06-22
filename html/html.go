@@ -159,9 +159,9 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 		lines := strings.Split(root.Content, "\n")
 		for _, line := range lines {
 			if short, textlen := isShort(root); !short || textlen >= 32 || len(lines) > 1 || siblings > 1 {
-				for i := 0; i < depth; i++ {
-					text.WriteString("    ")
-				}
+				//for i := 0; i < depth; i++ {
+				//	text.WriteString("    ")
+				//}
 				text.WriteString(strings.TrimSpace(line))
 				text.WriteByte('\n')
 			} else {
