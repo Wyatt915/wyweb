@@ -28,6 +28,7 @@ type HTMLElement struct {
 	Content    string
 	Attributes map[string]string
 	Children   []*HTMLElement
+	indent     bool
 }
 
 func NewHTMLElement(tag string, attr ...map[string]string) *HTMLElement {
@@ -45,7 +46,12 @@ func NewHTMLElement(tag string, attr ...map[string]string) *HTMLElement {
 		Content:    "",
 		Attributes: attributes,
 		Children:   make([]*HTMLElement, 0),
+		indent:     true,
 	}
+}
+
+func (e *HTMLElement) NoIndent() {
+	e.indent = false
 }
 
 func (e *HTMLElement) Append(elem *HTMLElement) {
@@ -55,6 +61,11 @@ func (e *HTMLElement) Append(elem *HTMLElement) {
 // Convienience function to quickly make a class attribute
 func Class(cls string) map[string]string {
 	return map[string]string{"class": cls}
+}
+
+// Convienience function to quickly make a class attribute
+func ID(id string) map[string]string {
+	return map[string]string{"id": id}
 }
 
 // Convienience function to quickly make an href attribute
@@ -158,10 +169,10 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 	if root.Tag == "" {
 		lines := strings.Split(root.Content, "\n")
 		for _, line := range lines {
-			if short, textlen := isShort(root); !short || textlen >= 32 || len(lines) > 1 || siblings > 1 {
-				//for i := 0; i < depth; i++ {
-				//	text.WriteString("    ")
-				//}
+			if short, textlen := isShort(root); root.indent && (!short || textlen >= 32 || len(lines) > 1 || siblings > 1) {
+				for i := 0; i < depth; i++ {
+					text.WriteString("    ")
+				}
 				text.WriteString(strings.TrimSpace(line))
 				text.WriteByte('\n')
 			} else {

@@ -9,4 +9,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require github.com/dlclark/regexp2 v1.7.0 // indirect
+require (
+	github.com/dlclark/regexp2 v1.7.0 // indirect
+	go.abhg.dev/goldmark/toc v0.10.0 // indirect
+)

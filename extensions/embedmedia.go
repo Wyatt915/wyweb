@@ -140,7 +140,7 @@ func (e *mediaEmbed) Extend(m goldmark.Markdown) {
 	p := int(^uint(0) >> 1) // Lowest priority
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
-			util.Prioritized(mediaTransformer{}, p),
+			util.Prioritized(mediaTransformer{}, 9000),
 		),
 	)
 	m.Renderer().AddOptions(

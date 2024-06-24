@@ -133,7 +133,7 @@ func (e *attribList) Extend(m goldmark.Markdown) {
 			util.Prioritized(NewALParser(), 98),
 		),
 		parser.WithASTTransformers(
-			util.Prioritized(attribListTransformer{}, 99),
+			util.Prioritized(attribListTransformer{}, 10000),
 		),
 	)
 }
