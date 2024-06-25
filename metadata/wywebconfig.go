@@ -23,18 +23,16 @@ type PageData struct {
 	Date       time.Time `yaml:"date,omitempty"`
 	Path       string    `yaml:"path,omitempty"`
 	ParentPath string    `yaml:"parent_path,omitempty"`
-	NavLinks   struct {
-		Next WWNavLink `yaml:"next,omitempty"`
-		Prev WWNavLink `yaml:"prev,omitempty"`
-		Up   WWNavLink `yaml:"up,omitempty"`
-	} `yaml:"nav_links,omitempty"`
+	Next       WWNavLink `yaml:"next,omitempty"`
+	Prev       WWNavLink `yaml:"prev,omitempty"`
+	Up         WWNavLink `yaml:"up,omitempty"`
 }
 
 type Resource struct {
+	Attributes map[string]string `yaml:"attributes,omitempty"`
 	Type       string            `yaml:"type,omitempty"`
 	Method     string            `yaml:"method,omitempty"`
 	Value      string            `yaml:"value,omitempty"`
-	Attributes map[string]string `yaml:"attributes,omitempty"`
 }
 
 type HeadData struct {

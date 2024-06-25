@@ -2,7 +2,6 @@ package extensions
 
 import (
 	"bytes"
-	"log"
 	"strings"
 
 	"github.com/yuin/goldmark"
@@ -93,7 +92,6 @@ func parseAttrList(attrstr []byte) attrNode {
 
 func (p *ALParser) Parse(parent ast.Node, block text.Reader, _ parser.Context) ast.Node {
 	line, seg := block.PeekLine()
-	log.Println(string(line))
 	stop := bytes.Index(line, _close)
 	if stop < 0 {
 		return nil

@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,7 @@ import (
 	wwExt "wyweb.site/wyweb/extensions"
 	. "wyweb.site/wyweb/html"
 	wmd "wyweb.site/wyweb/metadata"
+	"wyweb.site/wyweb/util"
 )
 
 var globalTree *wmd.ConfigTree
@@ -68,31 +70,35 @@ func tocRecurse(table *toc.Item, parent *HTMLElement) {
 }
 
 func renderTOC(t *toc.TOC) *HTMLElement {
+	if len(t.Items) == 0 {
+		return nil
+	}
 	elem := NewHTMLElement("nav", Class("nav-toc"))
 	ul := elem.AppendNew("div", Class("toc")).AppendNew("ul")
 	for _, item := range t.Items {
 		tocRecurse(item, ul)
+	}
+	if len(ul.Children) == 0 {
+		return nil
 	}
 	return elem
 }
 
 func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
 	defer timer("mdConvert")()
+	StyleName := "catppuccin-mocha"
 	md := goldmark.New(
 		goldmark.WithExtensions(
 			wwExt.EmbedMedia(),
 			wwExt.AttributeList(),
 			wwExt.LinkRewrite(node.Path),
-			//mathjax.MathJax,
 			extension.GFM,
 			extension.Footnote,
+			extension.Typographer,
 			highlighting.NewHighlighting(
-				highlighting.WithStyle("monokai"),
 				highlighting.WithFormatOptions(
 					chromahtml.WithLineNumbers(true),
-					//chromahtml.WithClasses(true),
-					//chromahtml.ClassPrefix("ch"),
-					//chromahtml.LineNumbersInTable(true),
+					chromahtml.WithClasses(true),
 				),
 			),
 		),
@@ -108,16 +114,13 @@ func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *H
 	var err error
 
 	doc := md.Parser().Parse(gmText.NewReader(text))
-	tree, err := toc.Inspect(doc, text)
+	tree, err := toc.Inspect(doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
 	var renderedToc *HTMLElement
 	if err != nil {
 		log.Printf("Error generating table of contents\n")
 		log.Printf("%+v\n", err)
 	} else {
 		renderedToc = renderTOC(tree)
-		var temp bytes.Buffer
-		RenderHTML(renderedToc, &temp)
-		log.Print(temp.String())
 	}
 
 	titleNode := doc.FirstChild()
@@ -139,6 +142,37 @@ func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *H
 	if err != nil {
 		panic(err)
 	}
+
+	formatter := chromahtml.New(chromahtml.WithClasses(true))
+	if _, ok := node.Tree.Resources[StyleName]; !ok {
+		var css bytes.Buffer
+		style := styles.Get(StyleName)
+		formatter.WriteCSS(&css, style)
+		node.Tree.Resources[StyleName] = wmd.Resource{
+			Type:       "style",
+			Method:     "raw",
+			Value:      css.String(),
+			Attributes: map[string]string{"media": "screen"},
+		}
+	}
+	if _, ok := node.Tree.Resources["algol"]; !ok {
+		var css bytes.Buffer
+		style := styles.Get("algol")
+		formatter.WriteCSS(&css, style)
+		node.Tree.Resources["algol"] = wmd.Resource{
+			Type:       "style",
+			Method:     "raw",
+			Value:      css.String(),
+			Attributes: map[string]string{"media": "print"},
+		}
+	}
+	if !slices.Contains(node.Resolved.Resources, StyleName) {
+		node.Resolved.Resources = append(node.Resolved.Resources, StyleName)
+	}
+	if !slices.Contains(node.Resolved.Resources, "algol") {
+		node.Resolved.Resources = append(node.Resolved.Resources, "algol")
+	}
+
 	return buf, renderedToc, title, err
 }
 
@@ -182,11 +216,36 @@ func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buff
 	return buf, nil
 }
 
+func breadcrumbs(node *wmd.ConfigNode) *HTMLElement {
+	nav := NewHTMLElement("nav", AriaLabel("Breadcrumbs"))
+	ol := nav.AppendNew("ol", Class("breadcrumbs"))
+	pathList := util.PathToList(node.Path)
+	crumbs := make([]wmd.WWNavLink, 1+len(pathList))
+	temp := node
+	idx := len(pathList)
+	for temp != nil && idx >= 0 {
+		crumbs[idx] = wmd.WWNavLink{
+			Path: "/" + temp.Path,
+			Text: temp.Resolved.PageData.Title,
+		}
+		idx--
+		temp = temp.Parent
+	}
+	var crumb *HTMLElement
+	for _, link := range crumbs {
+		crumb = ol.AppendNew("li").AppendNew("a", Href(link.Path))
+		crumb.AppendText(link.Text)
+	}
+	crumb.Attributes["aria-current"] = "page"
+	return nav
+}
+
 func buildListing(node *wmd.ConfigNode) error {
 	meta := (*node.Data).(*wmd.WyWebListing)
 	page := NewHTMLElement("article")
-	page.AppendNew("nav", Class("navlinks"))
-	page.AppendNew("header", Class("listingheader")).AppendNew("h1").AppendText(meta.Title)
+	header := page.AppendNew("header", Class("listingheader"))
+	header.Append(breadcrumbs(node))
+	header.AppendNew("h1").AppendText(meta.Title)
 	page.AppendNew("div", Class("description")).AppendText(meta.Description)
 	children := make([]wmd.ConfigNode, 0)
 	for _, child := range node.Children {
@@ -237,37 +296,37 @@ func findIndex(path string) ([]byte, error) {
 
 func buildArticleHeader(node *wmd.ConfigNode, title, article *HTMLElement) {
 	header := article.AppendNew("header")
+	header.Append(breadcrumbs(node))
 	header.Append(title)
 	info := header.AppendNew("div", Class("post-info"))
 	info.AppendNew("time",
 		ID("publication-date"),
 		map[string]string{"datetime": node.Date.Format(time.DateOnly)},
 	).AppendText(node.Date.Format("Jan _2, 2006"))
-	info.AppendNew("span", ID("author")).AppendText(node.Resolved.Author)
+	info.AppendNew("span", ID("author")).AppendText(node.Resolved.PageData.Author)
 	info.AppendNew("time",
 		ID("updated"),
-		map[string]string{"datetime": node.Date.Format(time.RFC3339)},
+		map[string]string{"datetime": (*node.Data).(*wmd.WyWebPost).Updated.Format(time.RFC3339)},
 	).AppendText(node.Date.Format("Jan _2, 2006"))
 	navlinks := header.AppendNew("nav", Class("navlinks"))
-	nl := (*(*node).Data).GetPageData().NavLinks
 	navlinks.AppendNew("div",
 		ID("navlink-prev"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(filepath.Base(nl.Prev.Path)),
-	).AppendText(nl.Prev.Text)
+		Href(node.Resolved.PageData.Prev.Path),
+	).AppendText(node.Resolved.PageData.Prev.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-up"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(filepath.Base(nl.Up.Path)),
-	).AppendText(nl.Up.Text)
+		Href(node.Resolved.PageData.Up.Path),
+	).AppendText(node.Resolved.PageData.Up.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-next"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(filepath.Base(nl.Next.Path)),
-	).AppendText(nl.Next.Text)
+		Href(node.Resolved.PageData.Next.Path),
+	).AppendText(node.Resolved.PageData.Next.Text)
 }
 
 func buildPost(node *wmd.ConfigNode) {
@@ -283,10 +342,7 @@ func buildPost(node *wmd.ConfigNode) {
 	check(err)
 	temp, TOC, title, _ := mdConvert(mdtext, *node)
 	body := NewHTMLElement("body")
-	//if TOC != nil {
-	log.Println("THE TOC: ", TOC)
 	body.Append(TOC)
-	//}
 	article := body.AppendNew("article")
 	buildArticleHeader(node, title, article)
 	article.AppendText(temp.String()).NoIndent()
@@ -342,19 +398,19 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func dumpStyles() {
-	formatter := chromahtml.New(chromahtml.WithClasses(true))
-	css, err := os.Create("monokai.css")
-	check(err)
-	defer css.Close()
-	style := styles.Get("monokai")
-	formatter.WriteCSS(css, style)
+	//formatter := chromahtml.New(chromahtml.WithClasses(true))
+	//css, err := os.Create("monokai.css")
+	//check(err)
+	//defer css.Close()
+	//style := styles.Get("monokai")
+	//formatter.WriteCSS(css, style)
 	for _, sty := range styles.Names() {
 		println(sty)
 	}
 }
 
 func main() {
-	//dumpStyles()
+	dumpStyles()
 	sockfile := "/tmp/wyweb.sock"
 	socket, err := net.Listen("unix", sockfile)
 	check(err)

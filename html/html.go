@@ -68,6 +68,10 @@ func ID(id string) map[string]string {
 	return map[string]string{"id": id}
 }
 
+func AriaLabel(lbl string) map[string]string {
+	return map[string]string{"aria-label": lbl}
+}
+
 // Convienience function to quickly make an href attribute
 func Href(url string) map[string]string {
 	return map[string]string{"href": url}
@@ -93,6 +97,7 @@ func (e *HTMLElement) AppendText(text string) *HTMLElement {
 		Content:    text,
 		Attributes: nil,
 		Children:   nil,
+		indent:     true,
 	}
 	e.Children = append(e.Children, elem)
 	return elem
@@ -158,6 +163,9 @@ func closeTag(elem *HTMLElement, depth int) []byte {
 }
 
 func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
+	if root == nil {
+		return
+	}
 	var depth int
 	var siblings int
 	if len(opts) > 0 {
@@ -169,9 +177,11 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 	if root.Tag == "" {
 		lines := strings.Split(root.Content, "\n")
 		for _, line := range lines {
-			if short, textlen := isShort(root); root.indent && (!short || textlen >= 32 || len(lines) > 1 || siblings > 1) {
-				for i := 0; i < depth; i++ {
-					text.WriteString("    ")
+			if short, textlen := isShort(root); !short || textlen >= 32 || len(lines) > 1 || siblings > 1 {
+				if root.indent {
+					for i := 0; i < depth; i++ {
+						text.WriteString("    ")
+					}
 				}
 				text.WriteString(strings.TrimSpace(line))
 				text.WriteByte('\n')

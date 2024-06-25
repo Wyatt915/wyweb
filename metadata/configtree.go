@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -19,9 +20,8 @@ import (
 // A Distillate is the resolved and "distilled" data about a given webpage. It is the result of determining all includes
 // and excludes, as well as the final rendered HTML of the page.
 type Distillate struct {
+	PageData   PageData
 	HTML       *html.HTMLElement
-	Author     string
-	Copyright  string
 	DomainName string
 	Meta       []string // The actual html <meta> elements as text.
 	Resources  []string // the names (keys) of resources requested by this page
@@ -134,8 +134,7 @@ func (node *ConfigNode) resolve() error {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
 		node.Resolved = &Distillate{
-			Author:     temp.Author,
-			Copyright:  temp.Copyright,
+			PageData:   *temp.GetPageData(),
 			DomainName: temp.DomainName,
 			Meta:       temp.Meta,
 			Resources:  make([]string, len(temp.Default.Resources)),
@@ -152,18 +151,17 @@ func (node *ConfigNode) resolve() error {
 		head := (*meta).GetHeadData()
 		page := (*meta).GetPageData()
 		node.Resolved = &Distillate{
-			Author:     node.Parent.Resolved.Author,
-			Copyright:  node.Parent.Resolved.Copyright,
+			PageData:   *page,
 			DomainName: node.Parent.Resolved.DomainName,
 			Meta:       node.Parent.Resolved.Meta,
 			HTML:       nil,
 		}
-		node.Date = (*meta).GetPageData().Date
-		if !reflect.ValueOf(page.Author).IsZero() {
-			node.Resolved.Author = page.Author
+		//		node.Resolved.PageData = *page
+		if node.Resolved.PageData.Author == "" {
+			node.Resolved.PageData.Author = node.Parent.Resolved.PageData.Author
 		}
-		if !reflect.ValueOf(page.Copyright).IsZero() {
-			node.Resolved.Copyright = page.Copyright
+		if node.Resolved.PageData.Copyright == "" {
+			node.Resolved.PageData.Copyright = node.Parent.Resolved.PageData.Copyright
 		}
 		local := make([]string, 0)
 		for name, value := range head.Resources {
@@ -193,6 +191,46 @@ func (node *ConfigNode) resolve() error {
 	return nil
 }
 
+func setNavLink(nl *WWNavLink, path, title string) {
+	if nl.Path == "" {
+		nl.Path = path
+	}
+	if nl.Text == "" {
+		nl.Text = title
+	}
+}
+
+// If NavLinks are not explicitly defined, set them by ordering items by creation date
+func setNavLinksOfChildren(node *ConfigNode) {
+	siblings := make([]*ConfigNode, len(node.Children))
+	i := 0
+	for _, child := range node.Children {
+		siblings[i] = child
+		i++
+	}
+	sort.Slice(siblings, func(i, j int) bool {
+		return siblings[i].Date.Before(siblings[j].Date)
+	})
+	var path, text string
+	for i, obj := range siblings {
+		res := obj.Resolved
+		if i > 0 {
+			path = "/" + siblings[i-1].Path
+			text = siblings[i-1].Resolved.PageData.Title
+			setNavLink(&res.PageData.Prev, path, text)
+		}
+		path, _ = filepath.Rel(".", node.Path)
+		path = "/" + path
+		text = node.Resolved.PageData.Title
+		setNavLink(&res.PageData.Up, path, text)
+		if i < len(siblings)-1 {
+			path = "/" + siblings[i+1].Path
+			text = siblings[i+1].Resolved.PageData.Title
+			setNavLink(&res.PageData.Next, path, text)
+		}
+	}
+}
+
 func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 	var status error
 	node.Tree = tree
@@ -220,14 +258,14 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 			Children: make(map[string]*ConfigNode),
 			Tree:     tree,
 			Resolved: nil,
+			Date:     meta.GetPageData().Date,
 		}
 		node.Children[filepath.Base(path)] = &child
 		child.resolve()
-		log.Printf("Growing tree from %s\n", path)
-		//child, _ := tree.RegisterConfig(meta)
 		child.growTree(path, tree)
 		return nil
 	})
+	setNavLinksOfChildren(node)
 	return status
 }
 
@@ -263,31 +301,25 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	return &out, nil
 }
 
+func (node *ConfigNode) search(path []string, idx int) (*ConfigNode, error) {
+	// we have SUCCESSFULLY reached the end of the path
+	if len(path) == idx {
+		return node, nil
+	}
+	child, ok := node.Children[path[idx]]
+	if !ok {
+		return nil, fmt.Errorf("not found")
+	}
+	return child.search(path, idx+1)
+}
+
 func (tree *ConfigTree) Search(path string) (*ConfigNode, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	node := tree.Root
-	var child *ConfigNode
-	var directory string
-	thisPath := util.PathToList(path)
-	for _, directory = range thisPath {
-		log.Println(directory)
-		child = node.Children[directory]
-		if child == nil {
-			continue
-		}
-		node = child
-		if child.Path == path {
-			break
-		}
-	}
-	// there are previously undiscovered directories that need to be filled in
-	if node.Path != path {
-		log.Printf("path: %s\n%+v\n", path, *node)
-		return nil, fmt.Errorf("not found")
-	}
-	//log.Printf("%s: %+v\n\n", path, node.Resolved)
-	return node, nil
+	log.Printf("Searching For %s\n", path)
+	pathList := util.PathToList(path)
+	return node.search(pathList, 0)
 }
 
 type URLResource struct {
