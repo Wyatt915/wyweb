@@ -288,7 +288,6 @@ func buildTagListing(query url.Values) *HTMLElement {
 	}
 	listingData := make([]wmd.Listable, 0)
 	for _, tag := range taglist {
-		println(tag)
 		listingData = util.ConcatUnique(listingData, globalTree.GetItemsByTag(tag))
 	}
 	sort.Slice(listingData, func(i, j int) bool {

@@ -139,7 +139,7 @@ func (node *ConfigNode) resolve() error {
 	if meta == nil {
 		return nil
 	}
-	switch (*meta).(type) {
+	switch t := (*meta).(type) {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
 		node.Resolved = &Distillate{
@@ -148,6 +148,9 @@ func (node *ConfigNode) resolve() error {
 			Meta:       temp.Meta,
 			Resources:  make([]string, len(temp.Default.Resources)),
 			HTML:       nil,
+		}
+		if t.Path == "" {
+			t.Path = node.Path
 		}
 		copy(node.Resolved.Resources, temp.Default.Resources)
 		return nil
@@ -201,6 +204,9 @@ func (node *ConfigNode) resolve() error {
 	tree := node.Tree
 	switch t := (*meta).(type) {
 	case *WyWebPost:
+		if t.Path == "" {
+			t.Path = node.Path
+		}
 		for _, tag := range t.Tags {
 			if _, ok := tree.TagDB[tag]; !ok {
 				tree.TagDB[tag] = make([]Listable, 0)
@@ -211,12 +217,13 @@ func (node *ConfigNode) resolve() error {
 		}
 	case *WyWebGallery:
 		for idx, item := range t.GalleryItems {
-			t.GalleryItems[idx].GalleryPath = t.Path
+			temp := t.GalleryItems[idx]
+			temp.GalleryPath = node.Path
 			for _, tag := range item.Tags {
 				if _, ok := tree.TagDB[tag]; !ok {
 					tree.TagDB[tag] = make([]Listable, 0)
 				}
-				tree.TagDB[tag] = append(tree.TagDB[tag], item)
+				tree.TagDB[tag] = append(tree.TagDB[tag], temp)
 			}
 
 		}
