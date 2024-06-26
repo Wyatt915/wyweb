@@ -94,6 +94,11 @@ type GalleryItem struct {
 	Medium      string    `yaml:"medium,omitempty"`
 	Title       string    `yaml:"title,omitempty"`
 	Tags        []string  `yaml:"tags,omitempty"`
+	GalleryPath string
+}
+
+func (n GalleryItem) GetDate() time.Time {
+	return n.Date
 }
 
 type WyWebGallery struct {

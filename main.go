@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"os/user"
@@ -240,39 +241,82 @@ func breadcrumbs(node *wmd.ConfigNode) *HTMLElement {
 	return nav
 }
 
-func buildListing(node *wmd.ConfigNode) error {
-	meta := (*node.Data).(*wmd.WyWebListing)
+func postToListItem(post *wmd.WyWebPost) *HTMLElement {
+	listing := NewHTMLElement("div", Class("listing"))
+	link := listing.AppendNew("a", Href(post.Path))
+	link.AppendNew("h2").AppendText(post.Title)
+	listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
+	tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
+	tagcontainer.AppendText("Tags")
+	taglist := tagcontainer.AppendNew("div", Class("taglist"))
+	for _, tag := range post.Tags {
+		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+	}
+	return listing
+}
+
+func galleryItemToListItem(item wmd.GalleryItem) *HTMLElement {
+	listing := NewHTMLElement("div", Class("listing"))
+	link := listing.AppendNew("a", Href(item.Filename))
+	link.AppendNew("h2").AppendText(item.Title)
+	gl := listing.AppendNew("div", Class("galleryListing"))
+	gl.AppendNew("div", Class("imgContainer")).AppendNew("a", Href(item.GalleryPath)).AppendNew(
+		"img",
+		Class("galleryImg"),
+		map[string]string{
+			"src": filepath.Join(item.GalleryPath, item.Filename),
+			"alt": item.Alt,
+		})
+	infoContainer := gl.AppendNew("div", Class("infoContainer"))
+	infoContainer.AppendNew("span", Class("galleryInfoArtist")).AppendText(item.Artist)
+	infoContainer.AppendNew("span", Class("galleryInfoMedium")).AppendText(item.Medium)
+	infoContainer.AppendNew("span", Class("galleryInfoLocation")).AppendText(item.Location)
+	infoContainer.AppendNew("span", Class("galleryInfoDescription")).AppendText(item.Description)
+	tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
+	tagcontainer.AppendText("Tags")
+	taglist := tagcontainer.AppendNew("div", Class("taglist"))
+	for _, tag := range item.Tags {
+		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+	}
+	return listing
+}
+
+func buildTagListing(query url.Values) *HTMLElement {
+	taglist, ok := query["tags"]
+	if !ok {
+		panic("No Tags Specified")
+	}
+	listingData := make([]wmd.Listable, 0)
+	for _, tag := range taglist {
+		println(tag)
+		listingData = util.ConcatUnique(listingData, globalTree.GetItemsByTag(tag))
+	}
+	sort.Slice(listingData, func(i, j int) bool {
+		return listingData[i].GetDate().After(listingData[j].GetDate())
+	})
+	return buildListing(listingData, nil, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
+}
+
+func buildListing(items []wmd.Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	page := NewHTMLElement("article")
 	header := page.AppendNew("header", Class("listingheader"))
-	header.Append(breadcrumbs(node))
-	header.AppendNew("h1").AppendText(meta.Title)
-	page.AppendNew("div", Class("description")).AppendText(meta.Description)
-	children := make([]wmd.ConfigNode, 0)
-	for _, child := range node.Children {
-		children = append(children, *child)
-	}
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].Date.After(children[j].Date)
-	})
-	for _, child := range children {
-		switch post := (*child.Data).(type) {
-		case *wmd.WyWebPost:
-			listing := page.AppendNew("div", Class("listing"))
-			link := listing.AppendNew("a", Href(post.Path))
-			link.AppendNew("h2").AppendText(post.Title)
-			listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
-			tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
-			tagcontainer.AppendText("Tags")
-			taglist := tagcontainer.AppendNew("div", Class("taglist"))
-			for _, tag := range post.Tags {
-				taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+	header.Append(breadcrumbs)
+	header.AppendNew("h1").AppendText(title)
+	page.AppendNew("div", Class("description")).AppendText(description)
+	for _, item := range items {
+		switch t := item.(type) {
+		case *wmd.ConfigNode:
+			log.Printf("%s\t%+v", (*t.Data).GetType(), *t)
+			if (*t.Data).GetType() == "post" {
+				page.Append(postToListItem((*t.Data).(*wmd.WyWebPost)))
 			}
+		case wmd.GalleryItem:
+			page.Append(galleryItemToListItem(t))
 		default:
 			continue
 		}
 	}
-	node.Resolved.HTML = page
-	return nil
+	return page
 }
 
 func findIndex(path string) ([]byte, error) {
@@ -364,6 +408,20 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
+	if path == "tags" {
+		query, err := url.ParseQuery(req.URL.RawQuery)
+		if err != nil {
+			w.WriteHeader(404)
+			w.Write([]byte(fileNotFound))
+			return
+		}
+		page := buildTagListing(query)
+		headData := globalTree.GetDefaultHead()
+		headData.Title = "Tags"
+		buf, _ := buildDocument(page, *headData)
+		w.Write(buf.Bytes())
+		return
+	}
 
 	node, err := globalTree.Search(path)
 	if err != nil {
@@ -379,10 +437,17 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	meta := node.Data
 	resolved := node.Resolved
 	if node.Resolved.HTML == nil {
-		switch (*meta).(type) {
+		switch t := (*meta).(type) {
 		//case *WyWebRoot:
 		case *wmd.WyWebListing:
-			buildListing(node)
+			children := make([]wmd.Listable, 0)
+			for _, child := range node.Children {
+				children = append(children, child)
+			}
+			sort.Slice(children, func(i, j int) bool {
+				return children[i].GetDate().After(children[j].GetDate())
+			})
+			node.Resolved.HTML = buildListing(children, breadcrumbs(node), t.Title, t.Description)
 		case *wmd.WyWebPost:
 			buildPost(node)
 		case *wmd.WyWebGallery:
@@ -394,23 +459,9 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	buf, _ := buildDocument(node.Resolved.HTML, *globalTree.GetHeadData(meta, resolved))
 	w.Write(buf.Bytes())
-
-}
-
-func dumpStyles() {
-	//formatter := chromahtml.New(chromahtml.WithClasses(true))
-	//css, err := os.Create("monokai.css")
-	//check(err)
-	//defer css.Close()
-	//style := styles.Get("monokai")
-	//formatter.WriteCSS(css, style)
-	for _, sty := range styles.Names() {
-		println(sty)
-	}
 }
 
 func main() {
-	dumpStyles()
 	sockfile := "/tmp/wyweb.sock"
 	socket, err := net.Listen("unix", sockfile)
 	check(err)

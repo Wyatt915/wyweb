@@ -37,6 +37,14 @@ type ConfigNode struct {
 	Date     time.Time
 }
 
+type Listable interface {
+	GetDate() time.Time
+}
+
+func (n *ConfigNode) GetDate() time.Time {
+	return n.Date
+}
+
 func newConfigNode() ConfigNode {
 	var out ConfigNode
 	out.Children = make(map[string]*ConfigNode)
@@ -47,6 +55,7 @@ func newConfigNode() ConfigNode {
 // Logical representation of the entire website
 type ConfigTree struct {
 	Root      *ConfigNode
+	TagDB     map[string][]Listable
 	Resources map[string]Resource
 	Domain    string
 	mu        sync.Mutex
@@ -188,6 +197,30 @@ func (node *ConfigNode) resolve() error {
 	default:
 		log.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
 	}
+	//register tags
+	tree := node.Tree
+	switch t := (*meta).(type) {
+	case *WyWebPost:
+		for _, tag := range t.Tags {
+			if _, ok := tree.TagDB[tag]; !ok {
+				tree.TagDB[tag] = make([]Listable, 0)
+			}
+			//if !slices.Contains(tree.TagDB[tag], node) {
+			tree.TagDB[tag] = append(tree.TagDB[tag], node)
+			//}
+		}
+	case *WyWebGallery:
+		for idx, item := range t.GalleryItems {
+			t.GalleryItems[idx].GalleryPath = t.Path
+			for _, tag := range item.Tags {
+				if _, ok := tree.TagDB[tag]; !ok {
+					tree.TagDB[tag] = make([]Listable, 0)
+				}
+				tree.TagDB[tag] = append(tree.TagDB[tag], item)
+			}
+
+		}
+	}
 	return nil
 }
 
@@ -283,6 +316,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 		Domain:    domain,
 		Root:      &rootnode,
 		Resources: make(map[string]Resource),
+		TagDB:     make(map[string][]Listable),
 	}
 	rootnode.Tree = &out
 	meta, err := ReadWyWeb(documentRoot)
@@ -322,6 +356,12 @@ func (tree *ConfigTree) Search(path string) (*ConfigNode, error) {
 	return node.search(pathList, 0)
 }
 
+func (tree *ConfigTree) GetItemsByTag(tag string) []Listable {
+	tree.mu.Lock()
+	defer tree.mu.Unlock()
+	return tree.TagDB[tag]
+}
+
 type URLResource struct {
 	String     string
 	Attributes map[string]string
@@ -337,6 +377,43 @@ type HTMLHeadData struct {
 	Meta    []string
 	Styles  []interface{}
 	Scripts []interface{}
+}
+
+func (tree *ConfigTree) GetDefaultHead() *HTMLHeadData {
+	tree.mu.Lock()
+	defer tree.mu.Unlock()
+	resolved := tree.Root.Resolved
+	styles := make([]interface{}, 0)
+	scripts := make([]interface{}, 0)
+	for _, name := range resolved.Resources {
+		res, ok := tree.Resources[name]
+		if !ok {
+			log.Printf("%s does not exist in the resource registry.\n", name)
+			continue
+		}
+		var value interface{}
+		switch res.Method {
+		case "raw":
+			value = RawResource{String: res.Value, Attributes: res.Attributes}
+		case "url":
+			value = URLResource{String: res.Value, Attributes: res.Attributes}
+		default:
+			log.Printf("Unknown method for resource %s: %s\n", name, res.Type)
+		}
+		switch res.Type {
+		case "style":
+			styles = append(styles, value)
+		case "script":
+			scripts = append(scripts, value)
+		default:
+			log.Printf("Unknown type for resource %s: %s\n", name, res.Type)
+		}
+	}
+	out := &HTMLHeadData{
+		Styles:  styles,
+		Scripts: scripts,
+	}
+	return out
 }
 
 func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Distillate) *HTMLHeadData {

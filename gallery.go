@@ -175,7 +175,7 @@ type imgPair struct {
 }
 
 // Pair up full sized images with their thumbnails
-func pairUp(path string, fullsized []string) []imgPair {
+func PairUp(path string, fullsized []string) []imgPair {
 	result := make([]imgPair, 0)
 	thumbdir := filepath.Join(path, "thumbs")
 	thumbMap := make(map[string]string)
@@ -395,7 +395,7 @@ func gallery(node *wmd.ConfigNode) {
 	extensions := []string{"jpg", "png"}
 	fullsized := findImages(node.Path, extensions)
 	createThumbnails(node.Path, fullsized)
-	pairs := pairUp(node.Path, fullsized)
+	pairs := PairUp(node.Path, fullsized)
 	main := NewHTMLElement("body", Class("imagegallery"))
 	grid := arrangeImages(pairs, 4, main)
 	galleryElem := main.AppendNew("div", Class("gallery"))
