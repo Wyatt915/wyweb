@@ -305,7 +305,6 @@ func buildListing(items []wmd.Listable, breadcrumbs *HTMLElement, title, descrip
 	for _, item := range items {
 		switch t := item.(type) {
 		case *wmd.ConfigNode:
-			log.Printf("%s\t%+v", (*t.Data).GetType(), *t)
 			if (*t.Data).GetType() == "post" {
 				page.Append(postToListItem((*t.Data).(*wmd.WyWebPost)))
 			}

@@ -2,7 +2,6 @@ package metadata
 
 import (
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -28,13 +27,14 @@ type Distillate struct {
 }
 
 type ConfigNode struct {
-	Children map[string]*ConfigNode
-	Parent   *ConfigNode
-	Data     *WyWebMeta
-	Tree     *ConfigTree
-	Resolved *Distillate
-	Path     string
-	Date     time.Time
+	Children       map[string]*ConfigNode
+	Parent         *ConfigNode
+	Data           *WyWebMeta
+	Tree           *ConfigTree
+	Resolved       *Distillate
+	Path           string
+	registeredTags map[string]bool
+	Date           time.Time
 }
 
 type Listable interface {
@@ -48,6 +48,7 @@ func (n *ConfigNode) GetDate() time.Time {
 func newConfigNode() ConfigNode {
 	var out ConfigNode
 	out.Children = make(map[string]*ConfigNode)
+	out.registeredTags = make(map[string]bool)
 	out.Resolved = nil
 	return out
 }
@@ -95,12 +96,13 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*ConfigNode, error) {
 		return parent.Children[directory], nil
 	}
 	result := ConfigNode{
-		Path:     (*cfg).GetPath(),
-		Parent:   parent,
-		Data:     cfg,
-		Children: make(map[string]*ConfigNode),
-		Tree:     tree,
-		Resolved: nil,
+		Path:           (*cfg).GetPath(),
+		Parent:         parent,
+		Data:           cfg,
+		Children:       make(map[string]*ConfigNode),
+		registeredTags: make(map[string]bool),
+		Tree:           tree,
+		Resolved:       nil,
 	}
 	parent.Children[directory] = &result
 	result.resolve()
@@ -208,12 +210,19 @@ func (node *ConfigNode) resolve() error {
 			t.Path = node.Path
 		}
 		for _, tag := range t.Tags {
+			doAppend := false
 			if _, ok := tree.TagDB[tag]; !ok {
 				tree.TagDB[tag] = make([]Listable, 0)
+				doAppend = true
+			} else {
+				_, ok := node.registeredTags[tag]
+				doAppend = !ok
 			}
-			//if !slices.Contains(tree.TagDB[tag], node) {
-			tree.TagDB[tag] = append(tree.TagDB[tag], node)
-			//}
+			if doAppend {
+				tree.TagDB[tag] = append(tree.TagDB[tag], node)
+				node.registeredTags[tag] = true
+			}
+			//			log.Printf("Appending %s to TagDB under '%s'", node.Resolved.PageData.Title, tag)
 		}
 	case *WyWebGallery:
 		for idx, item := range t.GalleryItems {
@@ -274,37 +283,44 @@ func setNavLinksOfChildren(node *ConfigNode) {
 func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 	var status error
 	node.Tree = tree
-	filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error {
-		if path == dir {
-			return nil
+	//filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+	ignore := []string{".git"}
+	for _, file := range files {
+		if !file.IsDir() {
+			continue
 		}
-		if !info.IsDir() {
-			return nil
+		if slices.Contains(ignore, file.Name()) {
+			continue
 		}
-		wwFileName := filepath.Join(path, "wyweb")
+		path := filepath.Join(dir, file.Name())
+		wwFileName := filepath.Join(dir, file.Name(), "wyweb")
 		_, e := os.Stat(wwFileName)
 		if e != nil {
-			return nil
+			continue
 		}
 		meta, e := ReadWyWeb(path)
 		if e != nil {
 			log.Printf("couldn't read %s", path)
-			return nil
+			continue
 		}
 		child := ConfigNode{
-			Path:     path,
-			Parent:   node,
-			Data:     &meta,
-			Children: make(map[string]*ConfigNode),
-			Tree:     tree,
-			Resolved: nil,
-			Date:     meta.GetPageData().Date,
+			Path:           path,
+			Parent:         node,
+			Data:           &meta,
+			Children:       make(map[string]*ConfigNode),
+			registeredTags: make(map[string]bool),
+			Tree:           tree,
+			Resolved:       nil,
+			Date:           meta.GetPageData().Date,
 		}
 		node.Children[filepath.Base(path)] = &child
 		child.resolve()
 		child.growTree(path, tree)
-		return nil
-	})
+	}
 	setNavLinksOfChildren(node)
 	return status
 }
@@ -312,12 +328,13 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	var err error
 	rootnode := ConfigNode{
-		Path:     documentRoot,
-		Parent:   nil,
-		Data:     nil,
-		Children: make(map[string]*ConfigNode),
-		Tree:     nil,
-		Resolved: nil,
+		Path:           documentRoot,
+		Parent:         nil,
+		Data:           nil,
+		Children:       make(map[string]*ConfigNode),
+		registeredTags: make(map[string]bool),
+		Tree:           nil,
+		Resolved:       nil,
 	}
 	out := ConfigTree{
 		Domain:    domain,
@@ -339,6 +356,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	}
 	rootnode.Data = &meta
 	rootnode.growTree(documentRoot, &out)
+	rootnode.printTree(0)
 	return &out, nil
 }
 
@@ -358,7 +376,6 @@ func (tree *ConfigTree) Search(path string) (*ConfigNode, error) {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
 	node := tree.Root
-	log.Printf("Searching For %s\n", path)
 	pathList := util.PathToList(path)
 	return node.search(pathList, 0)
 }
@@ -421,6 +438,16 @@ func (tree *ConfigTree) GetDefaultHead() *HTMLHeadData {
 		Scripts: scripts,
 	}
 	return out
+}
+
+func (node *ConfigNode) printTree(level int) {
+	for range level {
+		print("    ")
+	}
+	println(node.Resolved.PageData.Title)
+	for _, child := range node.Children {
+		child.printTree(level + 1)
+	}
 }
 
 func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Distillate) *HTMLHeadData {
