@@ -247,10 +247,18 @@ func doMove(grid *[][]imgPair, mv imgMove, target float32) float32 {
 	return calcLoss(grid, target)
 }
 func tryMove(grid *[][]imgPair, mv imgMove, target float32) float32 {
-	loss := doMove(grid, mv, target)
-	img := (*grid)[mv.col][len((*grid)[mv.col])-1]
-	(*grid)[mv.col] = (*grid)[mv.col][:len((*grid)[mv.col])-1]
-	(*grid)[mv.pos.x] = append((*grid)[mv.pos.x][:mv.pos.y], append([]imgPair{img}, (*grid)[mv.pos.x][mv.pos.y:]...)...)
+	diffs := make([]float32, len(*grid))
+	for i := range *grid {
+		diffs[i] = calcTotalHeight((*grid)[i]) - target
+	}
+	src, dst := mv.pos.x, mv.col
+	height := (*grid)[mv.pos.x][mv.pos.y].Aspect
+	diffs[src] -= height
+	diffs[dst] += height
+	var loss float32
+	for _, height := range diffs {
+		loss += height * height
+	}
 	return loss
 }
 
@@ -258,10 +266,20 @@ func doSwap(grid *[][]imgPair, sw imgSwap, target float32) float32 {
 	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
 	return calcLoss(grid, target)
 }
+
 func trySwap(grid *[][]imgPair, sw imgSwap, target float32) float32 {
-	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
-	loss := calcLoss(grid, target)
-	(*grid)[sw.posA.x][sw.posA.y], (*grid)[sw.posB.x][sw.posB.y] = (*grid)[sw.posB.x][sw.posB.y], (*grid)[sw.posA.x][sw.posA.y]
+	diffs := make([]float32, len(*grid))
+	for i := range *grid {
+		diffs[i] = calcTotalHeight((*grid)[i]) - target
+	}
+	colA, colB := sw.posA.x, sw.posB.x
+	heightA, heightB := (*grid)[sw.posA.x][sw.posA.y].Aspect, (*grid)[sw.posB.x][sw.posB.y].Aspect
+	diffs[colA] += heightB - heightA
+	diffs[colB] += heightA - heightB
+	var loss float32
+	for _, height := range diffs {
+		loss += height * height
+	}
 	return loss
 }
 
