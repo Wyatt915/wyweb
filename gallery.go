@@ -5,7 +5,6 @@ import (
 	"image"
 	"image/color"
 	"image/draw"
-	_ "image/jpeg"
 	"image/png"
 	"io/fs"
 	"log"
@@ -13,27 +12,41 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
+
+	_ "image/gif"
+	_ "image/jpeg"
+
+	_ "golang.org/x/image/tiff"
+	_ "golang.org/x/image/webp"
 
 	. "wyweb.site/wyweb/html"
 	wmd "wyweb.site/wyweb/metadata"
 )
 
 // Given a path and a list of file extensions ext, return all image filenames in the path.
-func findImages(path string, extensions []string) []string {
+func findImages(path string) []string {
 	stat, err := os.Stat(path)
 	if err != nil || !stat.IsDir() {
 		return nil
 	}
 	result := make([]string, 0)
-	for _, ext := range extensions {
-		globbed, _ := filepath.Glob(filepath.Join(path, "*."+ext))
-		result = slices.Concat(result, globbed)
+	files, _ := os.ReadDir(path)
+	for _, file := range files {
+		f, err := os.Open(filepath.Join(path, file.Name()))
+		if err != nil {
+			continue
+		}
+		_, format, err := image.DecodeConfig(f)
+		f.Close()
+		println(file.Name(), format)
+		if err != nil {
+			continue
+		}
+		if format != "" {
+			result = append(result, filepath.Join(path, file.Name()))
+		}
 	}
-	//for idx, name := range result {
-	//	result[idx] = filepath.Base(name)
-	//}
 	return result
 }
 
@@ -64,6 +77,9 @@ func scaleImage(img *image.Image, fast bool) *image.Image {
 	maxHeight := 600
 	origHeight := (*img).Bounds().Dy()
 	origWidth := (*img).Bounds().Dx()
+	if origHeight <= maxHeight && origWidth <= maxWidth {
+		return img
+	}
 	invHeightRatio := float32(maxHeight) / float32(origHeight)
 	invWidthRatio := float32(maxWidth) / float32(origWidth)
 	var width, height int
@@ -111,8 +127,8 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 	}
 	defer imgFile.Close()
 	basename := filepath.Base(imageFileName)
-	ext := filepath.Ext(basename)
-	nameNoExt := strings.Split(basename, ext)[0]
+	//ext := filepath.Ext(basename)
+	//nameNoExt := strings.Split(basename, ext)[0]
 	var fullImg image.Image
 	var format string
 	fullImg, format, err = image.Decode(imgFile)
@@ -121,7 +137,7 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 		log.Println(err)
 	}
 	thumbnail := scaleImage(&fullImg, true)
-	thumbFileName := filepath.Join(thumbdir, nameNoExt+".png")
+	thumbFileName := filepath.Join(thumbdir, basename+".png")
 	thumbFile, err := os.Create(thumbFileName)
 	if err != nil {
 		log.Printf("WARN: could not open %s for writing.\n", thumbFileName)
@@ -132,7 +148,13 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 }
 
 func removeExt(name string) string {
-	return strings.Split(name, filepath.Ext(name))[0]
+	dot := 0
+	for idx, char := range name {
+		if char == '.' {
+			dot = idx
+		}
+	}
+	return name[:dot]
 }
 
 func createThumbnails(path string, images []string) error {
@@ -184,7 +206,7 @@ func PairUp(path string, fullsized []string) []imgPair {
 		return nil
 	})
 	for _, full := range fullsized {
-		thumb, ok := thumbMap[removeExt(filepath.Base(full))]
+		thumb, ok := thumbMap[filepath.Base(full)]
 		if !ok {
 			continue
 		}
@@ -246,13 +268,13 @@ func doMove(grid *[][]imgPair, mv imgMove, target float32) float32 {
 	(*grid)[mv.col] = append((*grid)[mv.col], img)                                              // paste
 	return calcLoss(grid, target)
 }
-func tryMove(grid *[][]imgPair, mv imgMove, target float32) float32 {
-	diffs := make([]float32, len(*grid))
-	for i := range *grid {
-		diffs[i] = calcTotalHeight((*grid)[i]) - target
+func tryMove(grid [][]imgPair, mv imgMove, target float32) float32 {
+	diffs := make([]float32, len(grid))
+	for i := range grid {
+		diffs[i] = calcTotalHeight(grid[i]) - target
 	}
 	src, dst := mv.pos.x, mv.col
-	height := (*grid)[mv.pos.x][mv.pos.y].Aspect
+	height := grid[mv.pos.x][mv.pos.y].Aspect
 	diffs[src] -= height
 	diffs[dst] += height
 	var loss float32
@@ -267,13 +289,13 @@ func doSwap(grid *[][]imgPair, sw imgSwap, target float32) float32 {
 	return calcLoss(grid, target)
 }
 
-func trySwap(grid *[][]imgPair, sw imgSwap, target float32) float32 {
-	diffs := make([]float32, len(*grid))
-	for i := range *grid {
-		diffs[i] = calcTotalHeight((*grid)[i]) - target
+func trySwap(grid [][]imgPair, sw imgSwap, target float32) float32 {
+	diffs := make([]float32, len(grid))
+	for i := range grid {
+		diffs[i] = calcTotalHeight(grid[i]) - target
 	}
 	colA, colB := sw.posA.x, sw.posB.x
-	heightA, heightB := (*grid)[sw.posA.x][sw.posA.y].Aspect, (*grid)[sw.posB.x][sw.posB.y].Aspect
+	heightA, heightB := grid[sw.posA.x][sw.posA.y].Aspect, grid[sw.posB.x][sw.posB.y].Aspect
 	diffs[colA] += heightB - heightA
 	diffs[colB] += heightA - heightB
 	var loss float32
@@ -320,19 +342,15 @@ func optimizeArrangement(grid [][]imgPair) [][]imgPair {
 					continue
 				}
 
-				improvement := tryMove(&grid, imgMove{pos, col, 0}, target)
+				improvement := tryMove(grid, imgMove{pos, col, 0}, target)
 				if improvement < bestMove.score {
 					keepGoing = true
 					bestMove = imgMove{pos, col, improvement}
 				}
 			}
 			for j := i + 1; j < len(coords); j++ {
-				//for j := range coords {
-				//	if i == j {
-				//		continue
-				//	}
 				sw := imgSwap{coords[i], coords[j], 0}
-				improvement := trySwap(&grid, sw, target)
+				improvement := trySwap(grid, sw, target)
 				if improvement < bestSwap.score {
 					keepGoing = true
 					bestSwap = imgSwap{coords[i], coords[j], improvement}
@@ -384,7 +402,6 @@ func partition(parts [][]imgPair, limit int) [][]imgPair {
 
 func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair {
 	defer timer("arrangeImages")()
-	//arr := page.AppendNew("div", Class("gallery"))
 	out := make([][]imgPair, columns)
 	for i := 0; i < columns; i++ {
 		out[i] = make([]imgPair, 0)
@@ -410,8 +427,7 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 }
 
 func gallery(node *wmd.ConfigNode) {
-	extensions := []string{"jpg", "png"}
-	fullsized := findImages(node.Path, extensions)
+	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
 	main := NewHTMLElement("body", Class("imagegallery"))

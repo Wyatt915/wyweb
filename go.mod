@@ -14,4 +14,6 @@ require (
 	github.com/alecthomas/chroma v0.10.0 // indirect
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc // indirect
+	golang.org/x/image v0.18.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
 )
