@@ -36,7 +36,6 @@ func findImages(path string) []string {
 		}
 		_, format, err := image.DecodeConfig(f)
 		f.Close()
-		println(file.Name(), format)
 		if err != nil {
 			continue
 		}
@@ -174,7 +173,7 @@ func createThumbnails(path string, images []string) error {
 	var wg sync.WaitGroup
 	for _, imageFileName := range images {
 		basename := filepath.Base(imageFileName)
-		if slices.Contains(thumbs, removeExt(basename)) {
+		if slices.Contains(thumbs, basename) {
 			continue
 		}
 		wg.Add(1)
@@ -198,17 +197,32 @@ func PairUp(path string, fullsized []string) []imgPair {
 	result := make([]imgPair, 0)
 	thumbdir := filepath.Join(path, "thumbs")
 	thumbMap := make(map[string]string)
-	filepath.WalkDir(thumbdir, func(filename string, entry fs.DirEntry, err error) error {
-		thumbMap[removeExt(entry.Name())] = filename
-		return nil
-	})
+	thumbfiles, _ := os.ReadDir(thumbdir)
+	//unmatchedRemaining = true
+	//for unmatchedRemaining {
+	//unmatchedRemaining = false
+	for _, entry := range thumbfiles {
+		thumbMap[removeExt(entry.Name())] = filepath.Join(thumbdir, entry.Name())
+	}
+	matches := make([]string, 0) //A match is a thumbnail with a corresponding fullsized image
 	for _, full := range fullsized {
 		thumb, ok := thumbMap[filepath.Base(full)]
 		if !ok {
+			fmt.Printf("Could not find thumb for %s", full)
 			continue
 		}
+		println(full, thumb)
+		matches = append(matches, thumb)
 		result = append(result, imgPair{Full: full, Thumb: thumb})
 	}
+	//orphans := make([]string, 0) //An orphan is a thumbnail withourt a corresponding fullsized image
+	for _, entry := range thumbfiles {
+		if !slices.Contains(matches, filepath.Join(thumbdir, entry.Name())) {
+			fmt.Printf("Removing %s", filepath.Join(thumbdir, entry.Name()))
+			os.Remove(filepath.Join(thumbdir, entry.Name()))
+		}
+	}
+	//}
 	for idx, res := range result {
 		thumbFile, err := os.Open(res.Thumb)
 		if err != nil {
@@ -423,7 +437,7 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	return out
 }
 
-func gallery(node *ConfigNode) {
+func buildGallery(node *ConfigNode) {
 	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)

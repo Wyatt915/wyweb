@@ -447,7 +447,7 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		case *WyWebPost:
 			buildPost(node)
 		case *WyWebGallery:
-			gallery(node)
+			buildGallery(node)
 		default:
 			fmt.Println("whoopsie")
 			return
