@@ -1,4 +1,4 @@
-package metadata
+package main
 
 import (
 	"fmt"
@@ -12,7 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"wyweb.site/wyweb/html"
 	"wyweb.site/wyweb/util"
 )
 
@@ -20,7 +19,7 @@ import (
 // and excludes, as well as the final rendered HTML of the page.
 type Distillate struct {
 	PageData   PageData
-	HTML       *html.HTMLElement
+	HTML       *HTMLElement
 	DomainName string
 	Meta       []string // The actual html <meta> elements as text.
 	Resources  []string // the names (keys) of resources requested by this page
@@ -35,6 +34,7 @@ type ConfigNode struct {
 	Path           string
 	registeredTags map[string]bool
 	Date           time.Time
+	Updated        time.Time
 }
 
 type Listable interface {
@@ -55,11 +55,12 @@ func newConfigNode() ConfigNode {
 
 // Logical representation of the entire website
 type ConfigTree struct {
-	Root      *ConfigNode
-	TagDB     map[string][]Listable
-	Resources map[string]Resource
-	Domain    string
-	mu        sync.Mutex
+	Root         *ConfigNode
+	TagDB        map[string][]Listable
+	Resources    map[string]Resource
+	DocumentRoot string
+	Domain       string
+	mu           sync.Mutex
 }
 
 // Create a new configNode from cfg and add it to the tree
@@ -170,7 +171,11 @@ func (node *ConfigNode) resolve() error {
 			Meta:       node.Parent.Resolved.Meta,
 			HTML:       nil,
 		}
-		//		node.Resolved.PageData = *page
+		node.Date = t.GetPageData().Date
+		node.Updated = t.GetPageData().Updated
+		if node.Updated.IsZero() {
+			node.Updated = node.Date
+		}
 		if node.Resolved.PageData.Author == "" {
 			node.Resolved.PageData.Author = node.Parent.Resolved.PageData.Author
 		}
@@ -328,7 +333,7 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	var err error
 	rootnode := ConfigNode{
-		Path:           documentRoot,
+		Path:           "",
 		Parent:         nil,
 		Data:           nil,
 		Children:       make(map[string]*ConfigNode),
@@ -337,10 +342,11 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 		Resolved:       nil,
 	}
 	out := ConfigTree{
-		Domain:    domain,
-		Root:      &rootnode,
-		Resources: make(map[string]Resource),
-		TagDB:     make(map[string][]Listable),
+		Domain:       domain,
+		DocumentRoot: documentRoot,
+		Root:         &rootnode,
+		Resources:    make(map[string]Resource),
+		TagDB:        make(map[string][]Listable),
 	}
 	rootnode.Tree = &out
 	meta, err := ReadWyWeb(documentRoot)
@@ -356,7 +362,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	}
 	rootnode.Data = &meta
 	rootnode.growTree(documentRoot, &out)
-	rootnode.printTree(0)
+	out.MakeSitemap()
 	return &out, nil
 }
 

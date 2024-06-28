@@ -30,12 +30,10 @@ import (
 	"go.abhg.dev/goldmark/toc"
 
 	wwExt "wyweb.site/wyweb/extensions"
-	. "wyweb.site/wyweb/html"
-	wmd "wyweb.site/wyweb/metadata"
 	"wyweb.site/wyweb/util"
 )
 
-var globalTree *wmd.ConfigTree
+var globalTree *ConfigTree
 
 const fileNotFound = `
 <html>
@@ -85,7 +83,7 @@ func renderTOC(t *toc.TOC) *HTMLElement {
 	return elem
 }
 
-func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
+func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
 	defer timer("mdConvert")()
 	StyleName := "catppuccin-mocha"
 	md := goldmark.New(
@@ -149,7 +147,7 @@ func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *H
 		var css bytes.Buffer
 		style := styles.Get(StyleName)
 		formatter.WriteCSS(&css, style)
-		node.Tree.Resources[StyleName] = wmd.Resource{
+		node.Tree.Resources[StyleName] = Resource{
 			Type:       "style",
 			Method:     "raw",
 			Value:      css.String(),
@@ -160,7 +158,7 @@ func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *H
 		var css bytes.Buffer
 		style := styles.Get("algol")
 		formatter.WriteCSS(&css, style)
-		node.Tree.Resources["algol"] = wmd.Resource{
+		node.Tree.Resources["algol"] = Resource{
 			Type:       "style",
 			Method:     "raw",
 			Value:      css.String(),
@@ -177,15 +175,15 @@ func mdConvert(text []byte, node wmd.ConfigNode) (bytes.Buffer, *HTMLElement, *H
 	return buf, renderedToc, title, err
 }
 
-func buildHead(headData wmd.HTMLHeadData) *HTMLElement {
+func buildHead(headData HTMLHeadData) *HTMLElement {
 	head := NewHTMLElement("head")
 	title := head.AppendNew("title")
 	title.AppendText(headData.Title)
 	for _, style := range headData.Styles {
 		switch s := style.(type) {
-		case wmd.URLResource:
+		case URLResource:
 			head.AppendNew("link", map[string]string{"rel": "stylesheet", "href": s.String}, s.Attributes)
-		case wmd.RawResource:
+		case RawResource:
 			tag := head.AppendNew("style", s.Attributes)
 			tag.AppendText(s.String)
 		default:
@@ -194,9 +192,9 @@ func buildHead(headData wmd.HTMLHeadData) *HTMLElement {
 	}
 	for _, script := range headData.Scripts {
 		switch s := script.(type) {
-		case wmd.URLResource:
+		case URLResource:
 			head.AppendNew("script", map[string]string{"src": s.String, "async": ""}, s.Attributes)
-		case wmd.RawResource:
+		case RawResource:
 			tag := head.AppendNew("script", s.Attributes)
 			tag.AppendText(s.String)
 		default:
@@ -207,7 +205,7 @@ func buildHead(headData wmd.HTMLHeadData) *HTMLElement {
 	return head
 }
 
-func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buffer, error) {
+func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n")
 	document := NewHTMLElement("html")
@@ -217,15 +215,15 @@ func buildDocument(bodyHTML *HTMLElement, headData wmd.HTMLHeadData) (bytes.Buff
 	return buf, nil
 }
 
-func breadcrumbs(node *wmd.ConfigNode) *HTMLElement {
+func breadcrumbs(node *ConfigNode) *HTMLElement {
 	nav := NewHTMLElement("nav", AriaLabel("Breadcrumbs"))
 	ol := nav.AppendNew("ol", Class("breadcrumbs"))
 	pathList := util.PathToList(node.Path)
-	crumbs := make([]wmd.WWNavLink, 1+len(pathList))
+	crumbs := make([]WWNavLink, 1+len(pathList))
 	temp := node
 	idx := len(pathList)
 	for temp != nil && idx >= 0 {
-		crumbs[idx] = wmd.WWNavLink{
+		crumbs[idx] = WWNavLink{
 			Path: "/" + temp.Path,
 			Text: temp.Resolved.PageData.Title,
 		}
@@ -241,7 +239,7 @@ func breadcrumbs(node *wmd.ConfigNode) *HTMLElement {
 	return nav
 }
 
-func postToListItem(post *wmd.WyWebPost) *HTMLElement {
+func postToListItem(post *WyWebPost) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(post.Path))
 	link.AppendNew("h2").AppendText(post.Title)
@@ -255,7 +253,7 @@ func postToListItem(post *wmd.WyWebPost) *HTMLElement {
 	return listing
 }
 
-func galleryItemToListItem(item wmd.GalleryItem) *HTMLElement {
+func galleryItemToListItem(item GalleryItem) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(item.Filename))
 	link.AppendNew("h2").AppendText(item.Title)
@@ -286,7 +284,7 @@ func buildTagListing(query url.Values) *HTMLElement {
 	if !ok {
 		panic("No Tags Specified")
 	}
-	listingData := make([]wmd.Listable, 0)
+	listingData := make([]Listable, 0)
 	for _, tag := range taglist {
 		listingData = util.ConcatUnique(listingData, globalTree.GetItemsByTag(tag))
 	}
@@ -296,7 +294,7 @@ func buildTagListing(query url.Values) *HTMLElement {
 	return buildListing(listingData, nil, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
 }
 
-func buildListing(items []wmd.Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
+func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	page := NewHTMLElement("article")
 	header := page.AppendNew("header", Class("listingheader"))
 	header.Append(breadcrumbs)
@@ -304,11 +302,11 @@ func buildListing(items []wmd.Listable, breadcrumbs *HTMLElement, title, descrip
 	page.AppendNew("div", Class("description")).AppendText(description)
 	for _, item := range items {
 		switch t := item.(type) {
-		case *wmd.ConfigNode:
+		case *ConfigNode:
 			if (*t.Data).GetType() == "post" {
-				page.Append(postToListItem((*t.Data).(*wmd.WyWebPost)))
+				page.Append(postToListItem((*t.Data).(*WyWebPost)))
 			}
-		case wmd.GalleryItem:
+		case GalleryItem:
 			page.Append(galleryItemToListItem(t))
 		default:
 			continue
@@ -336,7 +334,7 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func buildArticleHeader(node *wmd.ConfigNode, title, article *HTMLElement) {
+func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
 	header := article.AppendNew("header")
 	header.Append(breadcrumbs(node))
 	header.Append(title)
@@ -348,7 +346,7 @@ func buildArticleHeader(node *wmd.ConfigNode, title, article *HTMLElement) {
 	info.AppendNew("span", ID("author")).AppendText(node.Resolved.PageData.Author)
 	info.AppendNew("time",
 		ID("updated"),
-		map[string]string{"datetime": (*node.Data).(*wmd.WyWebPost).Updated.Format(time.RFC3339)},
+		map[string]string{"datetime": (*node.Data).(*WyWebPost).Updated.Format(time.RFC3339)},
 	).AppendText(node.Date.Format("Jan _2, 2006"))
 	navlinks := header.AppendNew("nav", Class("navlinks"))
 	navlinks.AppendNew("div",
@@ -371,8 +369,8 @@ func buildArticleHeader(node *wmd.ConfigNode, title, article *HTMLElement) {
 	).AppendText(node.Resolved.PageData.Next.Text)
 }
 
-func buildPost(node *wmd.ConfigNode) {
-	meta := (*node.Data).(*wmd.WyWebPost)
+func buildPost(node *ConfigNode) {
+	meta := (*node.Data).(*WyWebPost)
 	resolved := node.Resolved
 	var mdtext []byte
 	var err error
@@ -401,7 +399,7 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	os.Chdir(docRoot)
 	if globalTree == nil {
 		var e error
-		globalTree, e = wmd.BuildConfigTree(".", "DOMAIN")
+		globalTree, e = BuildConfigTree(".", req.Header.Get("X-Forwarded-Host"))
 		check(e)
 	}
 	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
@@ -437,8 +435,8 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if node.Resolved.HTML == nil {
 		switch t := (*meta).(type) {
 		//case *WyWebRoot:
-		case *wmd.WyWebListing:
-			children := make([]wmd.Listable, 0)
+		case *WyWebListing:
+			children := make([]Listable, 0)
 			for _, child := range node.Children {
 				children = append(children, child)
 			}
@@ -446,9 +444,9 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				return children[i].GetDate().After(children[j].GetDate())
 			})
 			node.Resolved.HTML = buildListing(children, breadcrumbs(node), t.Title, t.Description)
-		case *wmd.WyWebPost:
+		case *WyWebPost:
 			buildPost(node)
-		case *wmd.WyWebGallery:
+		case *WyWebGallery:
 			gallery(node)
 		default:
 			fmt.Println("whoopsie")
@@ -481,6 +479,6 @@ func main() {
 		os.Exit(1)
 	}()
 	handler := WyWebHandler{}
-	//	handler.tree = new(wmd.ConfigTree)
+	//	handler.tree = new(ConfigTree)
 	http.Serve(socket, handler)
 }

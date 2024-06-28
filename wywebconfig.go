@@ -1,4 +1,4 @@
-package metadata
+package main
 
 import (
 	"fmt"
@@ -21,6 +21,7 @@ type PageData struct {
 	Title      string    `yaml:"title,omitempty"`
 	Copyright  string    `yaml:"copyright,omitempty"`
 	Date       time.Time `yaml:"date,omitempty"`
+	Updated    time.Time `yaml:"updated,omitempty"`
 	Path       string    `yaml:"path,omitempty"`
 	ParentPath string    `yaml:"parent_path,omitempty"`
 	Next       WWNavLink `yaml:"next,omitempty"`
@@ -77,10 +78,9 @@ type WyWebListing struct {
 type WyWebPost struct {
 	HeadData `yaml:",inline"`
 	PageData `yaml:",inline"`
-	Index    string    `yaml:"index,omitempty"`
-	Preview  string    `yaml:"preview,omitempty"`
-	Tags     []string  `yaml:"tags,omitempty"`
-	Updated  time.Time `yaml:"updated,omitempty"`
+	Index    string   `yaml:"index,omitempty"`
+	Preview  string   `yaml:"preview,omitempty"`
+	Tags     []string `yaml:"tags,omitempty"`
 }
 
 type GalleryItem struct {

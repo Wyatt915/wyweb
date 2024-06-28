@@ -19,9 +19,6 @@ import (
 
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
-
-	. "wyweb.site/wyweb/html"
-	wmd "wyweb.site/wyweb/metadata"
 )
 
 // Given a path and a list of file extensions ext, return all image filenames in the path.
@@ -426,7 +423,7 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	return out
 }
 
-func gallery(node *wmd.ConfigNode) {
+func gallery(node *ConfigNode) {
 	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
