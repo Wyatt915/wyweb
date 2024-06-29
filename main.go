@@ -53,7 +53,7 @@ func check(e error) {
 func timer(name string) func() {
 	start := time.Now()
 	return func() {
-		log.Printf("%s took %v\n", name, time.Since(start))
+		log.Printf("%s [%v]\n", name, time.Since(start))
 	}
 }
 
@@ -215,7 +215,7 @@ func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData) (bytes.Buffer, 
 	return buf, nil
 }
 
-func breadcrumbs(node *ConfigNode) *HTMLElement {
+func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 	nav := NewHTMLElement("nav", AriaLabel("Breadcrumbs"))
 	ol := nav.AppendNew("ol", Class("breadcrumbs"))
 	pathList := util.PathToList(node.Path)
@@ -229,6 +229,9 @@ func breadcrumbs(node *ConfigNode) *HTMLElement {
 		}
 		idx--
 		temp = temp.Parent
+	}
+	if extraCrumbs != nil {
+		crumbs = slices.Concat(crumbs, extraCrumbs)
 	}
 	var crumb *HTMLElement
 	for _, link := range crumbs {
@@ -279,7 +282,7 @@ func galleryItemToListItem(item GalleryItem) *HTMLElement {
 	return listing
 }
 
-func buildTagListing(query url.Values) *HTMLElement {
+func buildTagListing(query url.Values, crumbs *HTMLElement) *HTMLElement {
 	taglist, ok := query["tags"]
 	if !ok {
 		panic("No Tags Specified")
@@ -291,7 +294,18 @@ func buildTagListing(query url.Values) *HTMLElement {
 	sort.Slice(listingData, func(i, j int) bool {
 		return listingData[i].GetDate().After(listingData[j].GetDate())
 	})
-	return buildListing(listingData, nil, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
+	return buildListing(listingData, crumbs, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
+}
+
+func buildDirListing(node *ConfigNode) {
+	children := make([]Listable, 0)
+	for _, child := range node.Children {
+		children = append(children, child)
+	}
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].GetDate().After(children[j].GetDate())
+	})
+	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.PageData.Title, node.Resolved.PageData.Description)
 }
 
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
@@ -389,12 +403,21 @@ func buildPost(node *ConfigNode) {
 	resolved.HTML = body
 }
 
+func GetRemoteAddr(req *http.Request) string {
+	forwarded := req.Header.Get("X-Forwarded-For")
+	if forwarded != "" {
+		return forwarded
+	}
+	return req.RemoteAddr
+}
+
 type WyWebHandler struct {
 	http.Handler
 }
 
 func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	defer timer("ServeHTTP")()
+	defer timer(fmt.Sprintf("%s requested by %s", req.RequestURI, GetRemoteAddr(req)))()
+
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
 	if globalTree == nil {
@@ -411,7 +434,16 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(fileNotFound))
 			return
 		}
-		page := buildTagListing(query)
+		referer, _ := url.Parse(req.Referer())
+		var crumbs *HTMLElement
+		if referer.Hostname() == globalTree.Domain {
+			refPath := strings.TrimPrefix(referer.Path, "/")
+			refNode, err := globalTree.Search(refPath)
+			if err == nil {
+				crumbs = breadcrumbs(refNode, WWNavLink{Path: req.URL.String(), Text: "Tags"})
+			}
+		}
+		page := buildTagListing(query, crumbs)
 		headData := globalTree.GetDefaultHead()
 		headData.Title = "Tags"
 		buf, _ := buildDocument(page, *headData)
@@ -433,17 +465,10 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	meta := node.Data
 	resolved := node.Resolved
 	if node.Resolved.HTML == nil {
-		switch t := (*meta).(type) {
+		switch (*meta).(type) {
 		//case *WyWebRoot:
 		case *WyWebListing:
-			children := make([]Listable, 0)
-			for _, child := range node.Children {
-				children = append(children, child)
-			}
-			sort.Slice(children, func(i, j int) bool {
-				return children[i].GetDate().After(children[j].GetDate())
-			})
-			node.Resolved.HTML = buildListing(children, breadcrumbs(node), t.Title, t.Description)
+			buildDirListing(node)
 		case *WyWebPost:
 			buildPost(node)
 		case *WyWebGallery:

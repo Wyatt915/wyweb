@@ -2,6 +2,7 @@ package extensions
 
 import (
 	"bytes"
+	"os"
 	"slices"
 	"strings"
 
@@ -18,6 +19,7 @@ type mediaType int
 const (
 	mediaAudio = iota
 	mediaVideo
+	mediaSVG
 )
 
 type mediaInfo struct {
@@ -71,6 +73,9 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 				} else if slices.Contains(AudioExt, ext) {
 					flavor = mediaAudio
 					isMedia = true
+				} else if ext == "svg" && slices.Equal(img.Text(reader.Source()), []byte{'%'}) {
+					flavor = mediaSVG
+					isMedia = true
 				}
 				if isMedia {
 					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(mediaInfo{ext, img.Destination}, flavor))
@@ -114,6 +119,21 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 		tagOpen = `<audio controls>`
 		tagClose = `</audio>`
 		mime = "audio"
+	case mediaSVG:
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		//remove the leading slash
+		svg, err := os.Open(string(n.info.destination[1:]))
+		if err != nil {
+			return ast.WalkContinue, nil
+		}
+		defer svg.Close()
+		//var buf bytes.Buffer
+		//buf.ReadFrom(svg)
+		//w.Write(buf.Bytes())
+		svg.WriteTo(w)
+		return ast.WalkContinue, nil
 	}
 
 	mime = strings.Join([]string{mime, n.info.ext}, "/")

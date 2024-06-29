@@ -17,16 +17,17 @@ type WWNavLink struct {
 }
 
 type PageData struct {
-	Author     string    `yaml:"author,omitempty"`
-	Title      string    `yaml:"title,omitempty"`
-	Copyright  string    `yaml:"copyright,omitempty"`
-	Date       time.Time `yaml:"date,omitempty"`
-	Updated    time.Time `yaml:"updated,omitempty"`
-	Path       string    `yaml:"path,omitempty"`
-	ParentPath string    `yaml:"parent_path,omitempty"`
-	Next       WWNavLink `yaml:"next,omitempty"`
-	Prev       WWNavLink `yaml:"prev,omitempty"`
-	Up         WWNavLink `yaml:"up,omitempty"`
+	Author      string    `yaml:"author,omitempty"`
+	Title       string    `yaml:"title,omitempty"`
+	Description string    `yaml:"description,omitempty"`
+	Copyright   string    `yaml:"copyright,omitempty"`
+	Date        time.Time `yaml:"date,omitempty"`
+	Updated     time.Time `yaml:"updated,omitempty"`
+	Path        string    `yaml:"path,omitempty"`
+	ParentPath  string    `yaml:"parent_path,omitempty"`
+	Next        WWNavLink `yaml:"next,omitempty"`
+	Prev        WWNavLink `yaml:"prev,omitempty"`
+	Up          WWNavLink `yaml:"up,omitempty"`
 }
 
 type Resource struct {
@@ -70,9 +71,8 @@ type WyWebRoot struct {
 }
 
 type WyWebListing struct {
-	HeadData    `yaml:",inline"`
-	PageData    `yaml:",inline"`
-	Description string `yaml:"description,omitempty"`
+	HeadData `yaml:",inline"`
+	PageData `yaml:",inline"`
 }
 
 type WyWebPost struct {

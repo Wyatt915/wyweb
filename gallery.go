@@ -126,9 +126,7 @@ func writeThumbnail(imageFileName string, thumbdir string) {
 	//ext := filepath.Ext(basename)
 	//nameNoExt := strings.Split(basename, ext)[0]
 	var fullImg image.Image
-	var format string
-	fullImg, format, err = image.Decode(imgFile)
-	println(imgFile, format)
+	fullImg, _, err = image.Decode(imgFile)
 	if err != nil {
 		log.Println(err)
 	}
@@ -442,6 +440,10 @@ func buildGallery(node *ConfigNode) {
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
 	main := NewHTMLElement("body", Class("imagegallery"))
+	header := main.AppendNew("header")
+	header.Append(breadcrumbs(node))
+	header.AppendNew("h1").AppendText(node.Resolved.PageData.Title)
+	header.AppendNew("div", Class("description")).AppendText(node.Resolved.PageData.Description)
 	grid := arrangeImages(pairs, 4, main)
 	galleryElem := main.AppendNew("div", Class("gallery"))
 	galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
