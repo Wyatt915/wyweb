@@ -18,11 +18,10 @@ import (
 // A Distillate is the resolved and "distilled" data about a given webpage. It is the result of determining all includes
 // and excludes, as well as the final rendered HTML of the page.
 type Distillate struct {
-	PageData   PageData
-	HTML       *HTMLElement
-	DomainName string
-	Meta       []string // The actual html <meta> elements as text.
-	Resources  []string // the names (keys) of resources requested by this page
+	PageData
+	HTML      *HTMLElement
+	Meta      []string // The actual html <meta> elements as text.
+	Resources []string // the names (keys) of resources requested by this page
 }
 
 type ConfigNode struct {
@@ -146,11 +145,10 @@ func (node *ConfigNode) resolve() error {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
 		node.Resolved = &Distillate{
-			PageData:   *temp.GetPageData(),
-			DomainName: temp.DomainName,
-			Meta:       temp.Meta,
-			Resources:  make([]string, len(temp.Default.Resources)),
-			HTML:       nil,
+			PageData:  *temp.GetPageData(),
+			Meta:      temp.Meta,
+			Resources: make([]string, len(temp.Default.Resources)),
+			HTML:      nil,
 		}
 		if t.Path == "" {
 			t.Path = node.Path
@@ -166,21 +164,20 @@ func (node *ConfigNode) resolve() error {
 		head := (*meta).GetHeadData()
 		page := (*meta).GetPageData()
 		node.Resolved = &Distillate{
-			PageData:   *page,
-			DomainName: node.Parent.Resolved.DomainName,
-			Meta:       node.Parent.Resolved.Meta,
-			HTML:       nil,
+			PageData: *page,
+			Meta:     node.Parent.Resolved.Meta,
+			HTML:     nil,
 		}
 		node.Date = t.GetPageData().Date
 		node.Updated = t.GetPageData().Updated
 		if node.Updated.IsZero() {
 			node.Updated = node.Date
 		}
-		if node.Resolved.PageData.Author == "" {
-			node.Resolved.PageData.Author = node.Parent.Resolved.PageData.Author
+		if node.Resolved.Author == "" {
+			node.Resolved.Author = node.Parent.Resolved.Author
 		}
-		if node.Resolved.PageData.Copyright == "" {
-			node.Resolved.PageData.Copyright = node.Parent.Resolved.PageData.Copyright
+		if node.Resolved.Copyright == "" {
+			node.Resolved.Copyright = node.Parent.Resolved.Copyright
 		}
 		local := make([]string, 0)
 		for name, value := range head.Resources {
@@ -270,17 +267,17 @@ func setNavLinksOfChildren(node *ConfigNode) {
 		res := obj.Resolved
 		if i > 0 {
 			path = "/" + siblings[i-1].Path
-			text = siblings[i-1].Resolved.PageData.Title
-			setNavLink(&res.PageData.Prev, path, text)
+			text = siblings[i-1].Resolved.Title
+			setNavLink(&res.Prev, path, text)
 		}
 		path, _ = filepath.Rel(".", node.Path)
 		path = "/" + path
-		text = node.Resolved.PageData.Title
-		setNavLink(&res.PageData.Up, path, text)
+		text = node.Resolved.Title
+		setNavLink(&res.Up, path, text)
 		if i < len(siblings)-1 {
 			path = "/" + siblings[i+1].Path
-			text = siblings[i+1].Resolved.PageData.Title
-			setNavLink(&res.PageData.Next, path, text)
+			text = siblings[i+1].Resolved.Title
+			setNavLink(&res.Next, path, text)
 		}
 	}
 }
@@ -450,7 +447,7 @@ func (node *ConfigNode) printTree(level int) {
 	for range level {
 		print("    ")
 	}
-	println(node.Resolved.PageData.Title)
+	println(node.Resolved.Title)
 	for _, child := range node.Children {
 		child.printTree(level + 1)
 	}

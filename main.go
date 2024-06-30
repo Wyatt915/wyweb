@@ -218,17 +218,22 @@ func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData) (bytes.Buffer, 
 func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 	nav := NewHTMLElement("nav", AriaLabel("Breadcrumbs"))
 	ol := nav.AppendNew("ol", Class("breadcrumbs"))
-	pathList := util.PathToList(node.Path)
-	crumbs := make([]WWNavLink, 1+len(pathList))
-	temp := node
-	idx := len(pathList)
-	for temp != nil && idx >= 0 {
-		crumbs[idx] = WWNavLink{
-			Path: "/" + temp.Path,
-			Text: temp.Resolved.PageData.Title,
+	var crumbs []WWNavLink
+	if node != nil {
+		pathList := util.PathToList(node.Path)
+		crumbs = make([]WWNavLink, 1+len(pathList))
+		temp := node
+		idx := len(pathList)
+		for temp != nil && idx >= 0 {
+			crumbs[idx] = WWNavLink{
+				Path: "/" + temp.Path,
+				Text: temp.Resolved.Title,
+			}
+			idx--
+			temp = temp.Parent
 		}
-		idx--
-		temp = temp.Parent
+	} else {
+		crumbs = make([]WWNavLink, 0)
 	}
 	if extraCrumbs != nil {
 		crumbs = slices.Concat(crumbs, extraCrumbs)
@@ -294,6 +299,9 @@ func buildTagListing(query url.Values, crumbs *HTMLElement) *HTMLElement {
 	sort.Slice(listingData, func(i, j int) bool {
 		return listingData[i].GetDate().After(listingData[j].GetDate())
 	})
+	if crumbs == nil {
+		crumbs = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
+	}
 	return buildListing(listingData, crumbs, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
 }
 
@@ -305,7 +313,7 @@ func buildDirListing(node *ConfigNode) {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].GetDate().After(children[j].GetDate())
 	})
-	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.PageData.Title, node.Resolved.PageData.Description)
+	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.Title, node.Resolved.Description)
 }
 
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
@@ -357,30 +365,30 @@ func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
 		ID("publication-date"),
 		map[string]string{"datetime": node.Date.Format(time.DateOnly)},
 	).AppendText(node.Date.Format("Jan _2, 2006"))
-	info.AppendNew("span", ID("author")).AppendText(node.Resolved.PageData.Author)
+	info.AppendNew("span", ID("author")).AppendText(node.Resolved.Author)
 	info.AppendNew("time",
 		ID("updated"),
-		map[string]string{"datetime": (*node.Data).(*WyWebPost).Updated.Format(time.RFC3339)},
-	).AppendText(node.Date.Format("Jan _2, 2006"))
+		map[string]string{"datetime": node.Updated.Format(time.RFC3339)},
+	).AppendText(node.Updated.Format("Jan _2, 2006"))
 	navlinks := header.AppendNew("nav", Class("navlinks"))
 	navlinks.AppendNew("div",
 		ID("navlink-prev"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.PageData.Prev.Path),
-	).AppendText(node.Resolved.PageData.Prev.Text)
+		Href(node.Resolved.Prev.Path),
+	).AppendText(node.Resolved.Prev.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-up"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.PageData.Up.Path),
-	).AppendText(node.Resolved.PageData.Up.Text)
+		Href(node.Resolved.Up.Path),
+	).AppendText(node.Resolved.Up.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-next"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.PageData.Next.Path),
-	).AppendText(node.Resolved.PageData.Next.Text)
+		Href(node.Resolved.Next.Path),
+	).AppendText(node.Resolved.Next.Text)
 }
 
 func buildPost(node *ConfigNode) {
@@ -400,6 +408,12 @@ func buildPost(node *ConfigNode) {
 	article := body.AppendNew("article")
 	buildArticleHeader(node, title, article)
 	article.AppendText(temp.String()).NoIndent()
+	tagcontainer := article.AppendNew("div", Class("tagcontainer"))
+	tagcontainer.AppendText("Tags")
+	taglist := tagcontainer.AppendNew("div", Class("taglist"))
+	for tag := range node.registeredTags {
+		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+	}
 	resolved.HTML = body
 }
 
