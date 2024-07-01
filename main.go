@@ -2,34 +2,25 @@ package main
 
 import (
 	"bytes"
+	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"os/user"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
-	"github.com/alecthomas/chroma/v2/styles"
-	"github.com/yuin/goldmark"
-	highlighting "github.com/yuin/goldmark-highlighting/v2"
-	"github.com/yuin/goldmark/ast"
-	"github.com/yuin/goldmark/extension"
-	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer/html"
-	gmText "github.com/yuin/goldmark/text"
 	"go.abhg.dev/goldmark/toc"
 
-	wwExt "wyweb.site/wyweb/extensions"
 	"wyweb.site/wyweb/util"
 )
 
@@ -81,98 +72,6 @@ func renderTOC(t *toc.TOC) *HTMLElement {
 		return nil
 	}
 	return elem
-}
-
-func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
-	defer timer("mdConvert")()
-	StyleName := "catppuccin-mocha"
-	md := goldmark.New(
-		goldmark.WithExtensions(
-			wwExt.EmbedMedia(),
-			wwExt.AttributeList(),
-			wwExt.LinkRewrite(node.Path),
-			extension.GFM,
-			extension.Footnote,
-			extension.Typographer,
-			highlighting.NewHighlighting(
-				highlighting.WithFormatOptions(
-					chromahtml.WithLineNumbers(true),
-					chromahtml.WithClasses(true),
-				),
-			),
-		),
-		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
-		),
-		goldmark.WithRendererOptions(
-			html.WithXHTML(),
-			html.WithUnsafe(),
-		),
-	)
-	var buf bytes.Buffer
-	var err error
-
-	doc := md.Parser().Parse(gmText.NewReader(text))
-	tree, err := toc.Inspect(doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
-	var renderedToc *HTMLElement
-	if err != nil {
-		log.Printf("Error generating table of contents\n")
-		log.Printf("%+v\n", err)
-	} else {
-		renderedToc = renderTOC(tree)
-	}
-
-	titleNode := doc.FirstChild()
-	for titleNode != nil {
-		if titleNode.Kind() == ast.KindHeading && titleNode.(*ast.Heading).Level == 1 {
-			break
-		}
-		titleNode = titleNode.NextSibling()
-	}
-	var title *HTMLElement
-	if titleNode != nil {
-		h1Node := titleNode.(*ast.Heading)
-		title = NewHTMLElement("h1", ID("title"))
-		title.AppendText(string(h1Node.Text(text)))
-		doc.RemoveChild(doc, titleNode)
-	}
-
-	err = md.Renderer().Render(&buf, text, doc)
-	if err != nil {
-		panic(err)
-	}
-
-	formatter := chromahtml.New(chromahtml.WithClasses(true))
-	if _, ok := node.Tree.Resources[StyleName]; !ok {
-		var css bytes.Buffer
-		style := styles.Get(StyleName)
-		formatter.WriteCSS(&css, style)
-		node.Tree.Resources[StyleName] = Resource{
-			Type:       "style",
-			Method:     "raw",
-			Value:      css.String(),
-			Attributes: map[string]string{"media": "screen"},
-		}
-	}
-	if _, ok := node.Tree.Resources["algol"]; !ok {
-		var css bytes.Buffer
-		style := styles.Get("algol")
-		formatter.WriteCSS(&css, style)
-		node.Tree.Resources["algol"] = Resource{
-			Type:       "style",
-			Method:     "raw",
-			Value:      css.String(),
-			Attributes: map[string]string{"media": "print"},
-		}
-	}
-	if !slices.Contains(node.Resolved.Resources, StyleName) {
-		node.Resolved.Resources = append(node.Resolved.Resources, StyleName)
-	}
-	if !slices.Contains(node.Resolved.Resources, "algol") {
-		node.Resolved.Resources = append(node.Resolved.Resources, "algol")
-	}
-
-	return buf, renderedToc, title, err
 }
 
 func buildHead(headData HTMLHeadData) *HTMLElement {
@@ -247,96 +146,6 @@ func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 	return nav
 }
 
-func postToListItem(post *WyWebPost) *HTMLElement {
-	listing := NewHTMLElement("div", Class("listing"))
-	link := listing.AppendNew("a", Href(post.Path))
-	link.AppendNew("h2").AppendText(post.Title)
-	listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
-	tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
-	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("taglist"))
-	for _, tag := range post.Tags {
-		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
-	}
-	return listing
-}
-
-func galleryItemToListItem(item GalleryItem) *HTMLElement {
-	listing := NewHTMLElement("div", Class("listing"))
-	link := listing.AppendNew("a", Href(item.Filename))
-	link.AppendNew("h2").AppendText(item.Title)
-	gl := listing.AppendNew("div", Class("galleryListing"))
-	gl.AppendNew("div", Class("imgContainer")).AppendNew("a", Href(item.GalleryPath)).AppendNew(
-		"img",
-		Class("galleryImg"),
-		map[string]string{
-			"src": filepath.Join(item.GalleryPath, item.Filename),
-			"alt": item.Alt,
-		})
-	infoContainer := gl.AppendNew("div", Class("infoContainer"))
-	infoContainer.AppendNew("span", Class("galleryInfoArtist")).AppendText(item.Artist)
-	infoContainer.AppendNew("span", Class("galleryInfoMedium")).AppendText(item.Medium)
-	infoContainer.AppendNew("span", Class("galleryInfoLocation")).AppendText(item.Location)
-	infoContainer.AppendNew("span", Class("galleryInfoDescription")).AppendText(item.Description)
-	tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
-	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("taglist"))
-	for _, tag := range item.Tags {
-		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
-	}
-	return listing
-}
-
-func buildTagListing(query url.Values, crumbs *HTMLElement) *HTMLElement {
-	taglist, ok := query["tags"]
-	if !ok {
-		panic("No Tags Specified")
-	}
-	listingData := make([]Listable, 0)
-	for _, tag := range taglist {
-		listingData = util.ConcatUnique(listingData, globalTree.GetItemsByTag(tag))
-	}
-	sort.Slice(listingData, func(i, j int) bool {
-		return listingData[i].GetDate().After(listingData[j].GetDate())
-	})
-	if crumbs == nil {
-		crumbs = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
-	}
-	return buildListing(listingData, crumbs, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
-}
-
-func buildDirListing(node *ConfigNode) {
-	children := make([]Listable, 0)
-	for _, child := range node.Children {
-		children = append(children, child)
-	}
-	sort.Slice(children, func(i, j int) bool {
-		return children[i].GetDate().After(children[j].GetDate())
-	})
-	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.Title, node.Resolved.Description)
-}
-
-func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
-	page := NewHTMLElement("article")
-	header := page.AppendNew("header", Class("listingheader"))
-	header.Append(breadcrumbs)
-	header.AppendNew("h1").AppendText(title)
-	page.AppendNew("div", Class("description")).AppendText(description)
-	for _, item := range items {
-		switch t := item.(type) {
-		case *ConfigNode:
-			if (*t.Data).GetType() == "post" {
-				page.Append(postToListItem((*t.Data).(*WyWebPost)))
-			}
-		case GalleryItem:
-			page.Append(galleryItemToListItem(t))
-		default:
-			continue
-		}
-	}
-	return page
-}
-
 func findIndex(path string) ([]byte, error) {
 	tryFiles := []string{
 		"article.md",
@@ -356,67 +165,6 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
-	header := article.AppendNew("header")
-	header.Append(breadcrumbs(node))
-	header.Append(title)
-	info := header.AppendNew("div", Class("post-info"))
-	info.AppendNew("time",
-		ID("publication-date"),
-		map[string]string{"datetime": node.Date.Format(time.DateOnly)},
-	).AppendText(node.Date.Format("Jan _2, 2006"))
-	info.AppendNew("span", ID("author")).AppendText(node.Resolved.Author)
-	info.AppendNew("time",
-		ID("updated"),
-		map[string]string{"datetime": node.Updated.Format(time.RFC3339)},
-	).AppendText(node.Updated.Format("Jan _2, 2006"))
-	navlinks := header.AppendNew("nav", Class("navlinks"))
-	navlinks.AppendNew("div",
-		ID("navlink-prev"),
-		Class("navlink"),
-	).AppendNew("a",
-		Href(node.Resolved.Prev.Path),
-	).AppendText(node.Resolved.Prev.Text)
-	navlinks.AppendNew("div",
-		ID("navlink-up"),
-		Class("navlink"),
-	).AppendNew("a",
-		Href(node.Resolved.Up.Path),
-	).AppendText(node.Resolved.Up.Text)
-	navlinks.AppendNew("div",
-		ID("navlink-next"),
-		Class("navlink"),
-	).AppendNew("a",
-		Href(node.Resolved.Next.Path),
-	).AppendText(node.Resolved.Next.Text)
-}
-
-func buildPost(node *ConfigNode) {
-	meta := (*node.Data).(*WyWebPost)
-	resolved := node.Resolved
-	var mdtext []byte
-	var err error
-	if meta.Index != "" {
-		mdtext, err = os.ReadFile(filepath.Join(meta.Path, meta.Index))
-	} else {
-		mdtext, err = findIndex(meta.Path)
-	}
-	check(err)
-	temp, TOC, title, _ := mdConvert(mdtext, *node)
-	body := NewHTMLElement("body")
-	body.Append(TOC)
-	article := body.AppendNew("article")
-	buildArticleHeader(node, title, article)
-	article.AppendText(temp.String()).NoIndent()
-	tagcontainer := article.AppendNew("div", Class("tagcontainer"))
-	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("taglist"))
-	for tag := range node.registeredTags {
-		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
-	}
-	resolved.HTML = body
-}
-
 func GetRemoteAddr(req *http.Request) string {
 	forwarded := req.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
@@ -425,21 +173,29 @@ func GetRemoteAddr(req *http.Request) string {
 	return req.RemoteAddr
 }
 
+func GetHost(req *http.Request) string {
+	forwarded := req.Header.Get("X-Forwarded-Host")
+	if forwarded != "" {
+		return forwarded
+	}
+	return req.Host
+}
+
 type WyWebHandler struct {
 	http.Handler
 }
 
 func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer timer(fmt.Sprintf("%s requested by %s", req.RequestURI, GetRemoteAddr(req)))()
-
+	log.Println(req.URL.Hostname(), GetHost(req))
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
 	if globalTree == nil {
 		var e error
-		globalTree, e = BuildConfigTree(".", req.Header.Get("X-Forwarded-Host"))
+		globalTree, e = BuildConfigTree(".", GetHost(req))
 		check(e)
 	}
-	raw := strings.TrimPrefix(req.Header["Request-Uri"][0], "/")
+	raw := strings.TrimPrefix(req.URL.Path, "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 	if path == "tags" {
 		query, err := url.ParseQuery(req.URL.RawQuery)
@@ -496,28 +252,59 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	w.Write(buf.Bytes())
 }
 
-func main() {
-	sockfile := "/tmp/wyweb.sock"
-	socket, err := net.Listen("unix", sockfile)
-	check(err)
-	grp, err := user.LookupGroup("www-data")
-	check(err)
+func WyWebStart(sockfile, group string) {
+	defer os.Remove(sockfile)
+	var socket net.Listener
+	for {
+		var err error
+		socket, err = net.Listen("unix", sockfile)
+		if err != nil {
+			lsof := exec.Command("lsof", "+E", "-t", sockfile)
+			var out bytes.Buffer
+			lsof.Stdout = &out
+			lsof.Run()
+			if out.Len() == 0 {
+				os.Remove(sockfile)
+			} else {
+				fmt.Printf("%s in use by %s\n", sockfile, out.String())
+				os.Exit(2)
+			}
+		} else {
+			break
+		}
+	}
+	grp, err := user.LookupGroup(group)
+	if err != nil {
+		log.Printf("Could not find Specified group '%s'\n", group)
+		return
+	}
 	gid, _ := strconv.Atoi(grp.Gid)
 	if err = os.Chown(sockfile, -1, gid); err != nil {
 		log.Printf("Failed to change ownership: %v\n", err)
 		return
 	}
-	os.Chmod("/tmp/wyweb.sock", 0660)
-	check(err)
+	err = os.Chmod(sockfile, 0660)
+	if err != nil {
+		log.Printf("Could not change permissions for %s\n", sockfile)
+		return
+	}
 	// Cleanup the sockfile.
 	c := make(chan os.Signal, 1)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
-		os.Remove("/tmp/wyweb.sock")
+		os.Remove(sockfile)
 		os.Exit(1)
 	}()
 	handler := WyWebHandler{}
 	//	handler.tree = new(ConfigTree)
 	http.Serve(socket, handler)
+}
+
+func main() {
+	sock := flag.String("sock", "/tmp/wyweb.sock", "Path to the unix domain socket used by WyWeb")
+	grp := flag.String("grp", "www-data", "Group of the unix domain socket used by WyWeb (Should be the accessible by your reverse proxy)")
+	flag.Parse()
+	log.SetFlags(log.Lshortfile)
+	WyWebStart(*sock, *grp)
 }

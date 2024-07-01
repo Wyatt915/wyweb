@@ -35,6 +35,7 @@ type Resource struct {
 	Type       string            `yaml:"type,omitempty"`
 	Method     string            `yaml:"method,omitempty"`
 	Value      string            `yaml:"value,omitempty"`
+	DependsOn  []string          `yaml:"depends_on,omitempty"`
 }
 
 type HeadData struct {
