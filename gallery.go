@@ -154,7 +154,6 @@ func removeExt(name string) string {
 func createThumbnails(path string, images []string) error {
 	defer timer("createThumbnails")()
 	thumbdir := filepath.Join(path, "thumbs")
-	println(thumbdir)
 	stat, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -209,7 +208,6 @@ func PairUp(path string, fullsized []string) []imgPair {
 			fmt.Printf("Could not find thumb for %s", full)
 			continue
 		}
-		println(full, thumb)
 		matches = append(matches, thumb)
 		result = append(result, imgPair{Full: full, Thumb: thumb})
 	}

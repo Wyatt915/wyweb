@@ -158,7 +158,6 @@ func RouteTags(w http.ResponseWriter, req *http.Request) {
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
 	meta := node.Data
-	resolved := node.Resolved
 	if node.Resolved.HTML == nil {
 		switch (*meta).(type) {
 		//case *WyWebRoot:
@@ -177,13 +176,12 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
 	}
-	buf, _ := buildDocument(node.Resolved.HTML, *globalTree.GetHeadData(meta, resolved))
+	buf, _ := buildDocument(node.Resolved.HTML, *node.GetHeadData())
 	w.Write(buf.Bytes())
 }
 
 func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer timer(fmt.Sprintf("%s requested by %s", req.RequestURI, GetRemoteAddr(req)))()
-	log.Println(req.URL.Hostname(), GetHost(req))
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
 	if globalTree == nil {
