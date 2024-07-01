@@ -19,8 +19,6 @@ import (
 	"syscall"
 	"time"
 
-	"go.abhg.dev/goldmark/toc"
-
 	"wyweb.site/wyweb/util"
 )
 
@@ -35,43 +33,11 @@ const fileNotFound = `
 </html>
 `
 
-func check(e error) {
-	if e != nil {
-		fmt.Println(e.Error())
-		panic(e)
-	}
-}
 func timer(name string) func() {
 	start := time.Now()
 	return func() {
 		log.Printf("%s [%v]\n", name, time.Since(start))
 	}
-}
-
-func tocRecurse(table *toc.Item, parent *HTMLElement) {
-	for _, item := range table.Items {
-		child := parent.AppendNew("li")
-		child.AppendNew("a", Href("#"+string(item.ID))).AppendText(string(item.Title))
-		if len(item.Items) > 0 {
-			ul := child.AppendNew("ul")
-			tocRecurse(item, ul)
-		}
-	}
-}
-
-func renderTOC(t *toc.TOC) *HTMLElement {
-	if len(t.Items) == 0 {
-		return nil
-	}
-	elem := NewHTMLElement("nav", Class("nav-toc"))
-	ul := elem.AppendNew("div", Class("toc")).AppendNew("ul")
-	for _, item := range t.Items {
-		tocRecurse(item, ul)
-	}
-	if len(ul.Children) == 0 {
-		return nil
-	}
-	return elem
 }
 
 func buildHead(headData HTMLHeadData) *HTMLElement {
@@ -146,25 +112,6 @@ func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 	return nav
 }
 
-func findIndex(path string) ([]byte, error) {
-	tryFiles := []string{
-		"article.md",
-		"index.md",
-		"post.md",
-		"article",
-		"index",
-		"post",
-	}
-	for _, f := range tryFiles {
-		index := filepath.Join(path, f)
-		_, err := os.Stat(index)
-		if err == nil {
-			return os.ReadFile(index)
-		}
-	}
-	return nil, fmt.Errorf("could not find index")
-}
-
 func GetRemoteAddr(req *http.Request) string {
 	forwarded := req.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
@@ -185,6 +132,55 @@ type WyWebHandler struct {
 	http.Handler
 }
 
+func RouteTags(w http.ResponseWriter, req *http.Request) {
+	query, err := url.ParseQuery(req.URL.RawQuery)
+	if err != nil {
+		w.WriteHeader(404)
+		w.Write([]byte(fileNotFound))
+		return
+	}
+	referer, _ := url.Parse(req.Referer())
+	var crumbs *HTMLElement
+	if referer.Hostname() == globalTree.Domain {
+		refPath := strings.TrimPrefix(referer.Path, "/")
+		refNode, err := globalTree.Search(refPath)
+		if err == nil {
+			crumbs = breadcrumbs(refNode, WWNavLink{Path: req.URL.String(), Text: "Tags"})
+		}
+	}
+	page := buildTagListing(query, crumbs)
+	headData := globalTree.GetDefaultHead()
+	headData.Title = "Tags"
+	buf, _ := buildDocument(page, *headData)
+	w.Write(buf.Bytes())
+}
+
+func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
+	var err error
+	meta := node.Data
+	resolved := node.Resolved
+	if node.Resolved.HTML == nil {
+		switch (*meta).(type) {
+		//case *WyWebRoot:
+		case *WyWebListing:
+			err = buildDirListing(node)
+		case *WyWebPost:
+			err = buildPost(node)
+		case *WyWebGallery:
+			err = buildGallery(node)
+		default:
+			w.WriteHeader(500)
+			return
+		}
+	}
+	if err != nil {
+		w.WriteHeader(404)
+		w.Write([]byte(fileNotFound))
+	}
+	buf, _ := buildDocument(node.Resolved.HTML, *globalTree.GetHeadData(meta, resolved))
+	w.Write(buf.Bytes())
+}
+
 func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	defer timer(fmt.Sprintf("%s requested by %s", req.RequestURI, GetRemoteAddr(req)))()
 	log.Println(req.URL.Hostname(), GetHost(req))
@@ -193,34 +189,18 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if globalTree == nil {
 		var e error
 		globalTree, e = BuildConfigTree(".", GetHost(req))
-		check(e)
+		if e != nil {
+			log.Println(e.Error())
+			w.WriteHeader(500)
+			return
+		}
 	}
 	raw := strings.TrimPrefix(req.URL.Path, "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 	if path == "tags" {
-		query, err := url.ParseQuery(req.URL.RawQuery)
-		if err != nil {
-			w.WriteHeader(404)
-			w.Write([]byte(fileNotFound))
-			return
-		}
-		referer, _ := url.Parse(req.Referer())
-		var crumbs *HTMLElement
-		if referer.Hostname() == globalTree.Domain {
-			refPath := strings.TrimPrefix(referer.Path, "/")
-			refNode, err := globalTree.Search(refPath)
-			if err == nil {
-				crumbs = breadcrumbs(refNode, WWNavLink{Path: req.URL.String(), Text: "Tags"})
-			}
-		}
-		page := buildTagListing(query, crumbs)
-		headData := globalTree.GetDefaultHead()
-		headData.Title = "Tags"
-		buf, _ := buildDocument(page, *headData)
-		w.Write(buf.Bytes())
+		RouteTags(w, req)
 		return
 	}
-
 	node, err := globalTree.Search(path)
 	if err != nil {
 		_, ok := os.Stat(filepath.Join(path, "wyweb"))
@@ -229,31 +209,16 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			w.Write([]byte(fileNotFound))
 			return
 		}
+		w.WriteHeader(404)
+		w.Write([]byte(fileNotFound))
 		log.Printf("Bizarro error bruv\n")
 		return
 	}
-	meta := node.Data
-	resolved := node.Resolved
-	if node.Resolved.HTML == nil {
-		switch (*meta).(type) {
-		//case *WyWebRoot:
-		case *WyWebListing:
-			buildDirListing(node)
-		case *WyWebPost:
-			buildPost(node)
-		case *WyWebGallery:
-			buildGallery(node)
-		default:
-			fmt.Println("whoopsie")
-			return
-		}
-	}
-	buf, _ := buildDocument(node.Resolved.HTML, *globalTree.GetHeadData(meta, resolved))
-	w.Write(buf.Bytes())
+
+	RouteStatic(node, w)
 }
 
-func WyWebStart(sockfile, group string) {
-	defer os.Remove(sockfile)
+func TryListen(sockfile string) (net.Listener, error) {
 	var socket net.Listener
 	for {
 		var err error
@@ -266,36 +231,42 @@ func WyWebStart(sockfile, group string) {
 			if out.Len() == 0 {
 				os.Remove(sockfile)
 			} else {
-				fmt.Printf("%s in use by %s\n", sockfile, out.String())
-				os.Exit(2)
+				return socket, fmt.Errorf("%s in use by %s", sockfile, out.String())
 			}
 		} else {
 			break
 		}
 	}
+	return socket, nil
+}
+
+func TryChown(sockfile, group string) error {
 	grp, err := user.LookupGroup(group)
 	if err != nil {
-		log.Printf("Could not find Specified group '%s'\n", group)
-		return
+		return fmt.Errorf("could not find specified group '%s'", group)
 	}
 	gid, _ := strconv.Atoi(grp.Gid)
 	if err = os.Chown(sockfile, -1, gid); err != nil {
-		log.Printf("Failed to change ownership: %v\n", err)
-		return
+		return fmt.Errorf("failed to change ownership: %v", err)
 	}
 	err = os.Chmod(sockfile, 0660)
 	if err != nil {
-		log.Printf("Could not change permissions for %s\n", sockfile)
+		return fmt.Errorf("could not change permissions for %s", sockfile)
+	}
+	return nil
+}
+
+func WyWebStart(sockfile, group string) {
+	defer os.Remove(sockfile)
+	socket, err := TryListen(sockfile)
+	if err != nil {
+		log.Println(err.Error())
 		return
 	}
-	// Cleanup the sockfile.
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-c
-		os.Remove(sockfile)
-		os.Exit(1)
-	}()
+	err = TryChown(sockfile, group)
+	if err != nil {
+		log.Printf("WARN: %s", err.Error())
+	}
 	handler := WyWebHandler{}
 	//	handler.tree = new(ConfigTree)
 	http.Serve(socket, handler)
@@ -306,5 +277,13 @@ func main() {
 	grp := flag.String("grp", "www-data", "Group of the unix domain socket used by WyWeb (Should be the accessible by your reverse proxy)")
 	flag.Parse()
 	log.SetFlags(log.Lshortfile)
+	// Cleanup the sockfile.
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		os.Remove(*sock)
+		os.Exit(1)
+	}()
 	WyWebStart(*sock, *grp)
 }

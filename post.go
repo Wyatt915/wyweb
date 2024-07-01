@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,6 +23,31 @@ import (
 	wwExt "wyweb.site/wyweb/extensions"
 )
 
+func tocRecurse(table *toc.Item, parent *HTMLElement) {
+	for _, item := range table.Items {
+		child := parent.AppendNew("li")
+		child.AppendNew("a", Href("#"+string(item.ID))).AppendText(string(item.Title))
+		if len(item.Items) > 0 {
+			ul := child.AppendNew("ul")
+			tocRecurse(item, ul)
+		}
+	}
+}
+
+func renderTOC(t *toc.TOC) *HTMLElement {
+	if len(t.Items) == 0 {
+		return nil
+	}
+	elem := NewHTMLElement("nav", Class("nav-toc"))
+	ul := elem.AppendNew("div", Class("toc")).AppendNew("ul")
+	for _, item := range t.Items {
+		tocRecurse(item, ul)
+	}
+	if len(ul.Children) == 0 {
+		return nil
+	}
+	return elem
+}
 func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
 	defer timer("mdConvert")()
 	StyleName := "catppuccin-mocha"
@@ -148,7 +174,26 @@ func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
 	).AppendText(node.Resolved.Next.Text)
 }
 
-func buildPost(node *ConfigNode) {
+func findIndex(path string) ([]byte, error) {
+	tryFiles := []string{
+		"article.md",
+		"index.md",
+		"post.md",
+		"article",
+		"index",
+		"post",
+	}
+	for _, f := range tryFiles {
+		index := filepath.Join(path, f)
+		_, err := os.Stat(index)
+		if err == nil {
+			return os.ReadFile(index)
+		}
+	}
+	return nil, fmt.Errorf("could not find index")
+}
+
+func buildPost(node *ConfigNode) error {
 	meta := (*node.Data).(*WyWebPost)
 	resolved := node.Resolved
 	var mdtext []byte
@@ -158,7 +203,9 @@ func buildPost(node *ConfigNode) {
 	} else {
 		mdtext, err = findIndex(meta.Path)
 	}
-	check(err)
+	if err != nil {
+		return err
+	}
 	temp, TOC, title, _ := mdConvert(mdtext, *node)
 	body := NewHTMLElement("body")
 	body.Append(TOC)
@@ -172,4 +219,5 @@ func buildPost(node *ConfigNode) {
 		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
 	}
 	resolved.HTML = body
+	return nil
 }

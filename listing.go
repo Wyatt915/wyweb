@@ -67,7 +67,7 @@ func buildTagListing(query url.Values, crumbs *HTMLElement) *HTMLElement {
 	return buildListing(listingData, crumbs, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
 }
 
-func buildDirListing(node *ConfigNode) {
+func buildDirListing(node *ConfigNode) error {
 	children := make([]Listable, 0)
 	for _, child := range node.Children {
 		children = append(children, child)
@@ -76,6 +76,7 @@ func buildDirListing(node *ConfigNode) {
 		return children[i].GetDate().After(children[j].GetDate())
 	})
 	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.Title, node.Resolved.Description)
+	return nil
 }
 
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
