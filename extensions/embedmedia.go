@@ -157,15 +157,14 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 type mediaEmbed struct{}
 
 func (e *mediaEmbed) Extend(m goldmark.Markdown) {
-	p := int(^uint(0) >> 1) // Lowest priority
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
-			util.Prioritized(mediaTransformer{}, 9000),
+			util.Prioritized(mediaTransformer{}, priorityMediaTransformer),
 		),
 	)
 	m.Renderer().AddOptions(
 		renderer.WithNodeRenderers(
-			util.Prioritized(NewMediaHTMLRenderer(), p),
+			util.Prioritized(NewMediaHTMLRenderer(), priorityMediaHTMLRenderer),
 		),
 	)
 }

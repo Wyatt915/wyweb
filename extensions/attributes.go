@@ -11,10 +11,10 @@ import (
 	"github.com/yuin/goldmark/util"
 )
 
-type ALParser struct{}
+type attribListParser struct{}
 
-func NewALParser() *ALParser {
-	return &ALParser{}
+func NewAttribListParser() *attribListParser {
+	return &attribListParser{}
 }
 
 var (
@@ -22,7 +22,7 @@ var (
 	_close = []byte("}")
 )
 
-func (p *ALParser) Trigger() []byte {
+func (p *attribListParser) Trigger() []byte {
 	return []byte{'{'}
 }
 
@@ -90,7 +90,7 @@ func parseAttrList(attrstr []byte) attrNode {
 	return result
 }
 
-func (p *ALParser) Parse(parent ast.Node, block text.Reader, _ parser.Context) ast.Node {
+func (p *attribListParser) Parse(parent ast.Node, block text.Reader, _ parser.Context) ast.Node {
 	line, seg := block.PeekLine()
 	stop := bytes.Index(line, _close)
 	if stop < 0 {
@@ -128,10 +128,10 @@ type attribList struct{}
 func (e *attribList) Extend(m goldmark.Markdown) {
 	m.Parser().AddOptions(
 		parser.WithInlineParsers(
-			util.Prioritized(NewALParser(), 98),
+			util.Prioritized(NewAttribListParser(), priorityAttribListParser),
 		),
 		parser.WithASTTransformers(
-			util.Prioritized(attribListTransformer{}, 10000),
+			util.Prioritized(attribListTransformer{}, priorityAttribListTransformer),
 		),
 	)
 }

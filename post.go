@@ -56,6 +56,7 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 			wwExt.EmbedMedia(),
 			wwExt.AttributeList(),
 			wwExt.LinkRewrite(node.Path),
+			wwExt.AlertExtension(),
 			extension.GFM,
 			extension.Footnote,
 			extension.Typographer,
