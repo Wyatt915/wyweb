@@ -16,13 +16,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"wyweb.site/wyweb/util"
 )
-
-var globalTree *ConfigTree
 
 const fileNotFound = `
 <html>
@@ -128,11 +127,7 @@ func GetHost(req *http.Request) string {
 	return req.Host
 }
 
-type WyWebHandler struct {
-	http.Handler
-}
-
-func RouteTags(w http.ResponseWriter, req *http.Request) {
+func RouteTags(tree *ConfigTree, w http.ResponseWriter, req *http.Request) {
 	query, err := url.ParseQuery(req.URL.RawQuery)
 	if err != nil {
 		w.WriteHeader(404)
@@ -141,15 +136,15 @@ func RouteTags(w http.ResponseWriter, req *http.Request) {
 	}
 	referer, _ := url.Parse(req.Referer())
 	var crumbs *HTMLElement
-	if referer.Hostname() == globalTree.Domain {
+	if referer.Hostname() == GetHost(req) {
 		refPath := strings.TrimPrefix(referer.Path, "/")
-		refNode, err := globalTree.Search(refPath)
+		refNode, err := tree.Search(refPath)
 		if err == nil {
 			crumbs = breadcrumbs(refNode, WWNavLink{Path: req.URL.String(), Text: "Tags"})
 		}
 	}
-	page := buildTagListing(query, crumbs)
-	headData := globalTree.GetDefaultHead()
+	page := buildTagListing(tree, query, crumbs)
+	headData := tree.GetDefaultHead()
 	headData.Title = "Tags"
 	buf, _ := buildDocument(page, *headData)
 	w.Write(buf.Bytes())
@@ -180,26 +175,58 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	w.Write(buf.Bytes())
 }
 
+type WorldTree struct {
+	sync.RWMutex
+	realms map[string]*ConfigTree
+}
+
+// Get a branch or create it if it does not exist
+func (wt *WorldTree) GetRealm(host string) (*ConfigTree, error) {
+	wt.RLock()
+	realm, ok := wt.realms[host]
+	wt.RUnlock()
+	if !ok {
+		wt.Lock()
+		defer wt.Unlock()
+		var err error
+		realm, err = BuildConfigTree(".", host)
+		if err != nil {
+			return nil, err
+		}
+		wt.realms[host] = realm
+	}
+	return realm, nil
+}
+
+func (wt *WorldTree) Len() int {
+	wt.Lock()
+	defer wt.Unlock()
+	return len(wt.realms)
+}
+
+var GlobalTree WorldTree
+
+type WyWebHandler struct {
+	http.Handler
+	Yggdrasil *WorldTree
+}
+
 func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	defer timer(fmt.Sprintf("%s requested by %s", req.RequestURI, GetRemoteAddr(req)))()
+	defer timer(fmt.Sprintf("%s: %s requested %s", GetHost(req), GetRemoteAddr(req), req.RequestURI))()
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
-	if globalTree == nil {
-		var e error
-		globalTree, e = BuildConfigTree(".", GetHost(req))
-		if e != nil {
-			log.Println(e.Error())
-			w.WriteHeader(500)
-			return
-		}
+	realm, err := r.Yggdrasil.GetRealm(GetHost(req))
+	if err != nil {
+		w.WriteHeader(500)
+		return
 	}
 	raw := strings.TrimPrefix(req.URL.Path, "/")
 	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
 	if path == "tags" {
-		RouteTags(w, req)
+		RouteTags(realm, w, req)
 		return
 	}
-	node, err := globalTree.Search(path)
+	node, err := realm.Search(path)
 	if err != nil {
 		_, ok := os.Stat(filepath.Join(path, "wyweb"))
 		if ok != nil {
@@ -265,7 +292,10 @@ func WyWebStart(sockfile, group string) {
 	if err != nil {
 		log.Printf("WARN: %s", err.Error())
 	}
-	handler := WyWebHandler{}
+	GlobalTree.realms = make(map[string]*ConfigTree)
+	handler := WyWebHandler{
+		Yggdrasil: &GlobalTree,
+	}
 	//	handler.tree = new(ConfigTree)
 	http.Serve(socket, handler)
 }

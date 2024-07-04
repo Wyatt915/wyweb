@@ -77,8 +77,9 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 	)
 	var buf bytes.Buffer
 	var err error
-
-	doc := md.Parser().Parse(gmText.NewReader(text))
+	reader := gmText.NewReader(text)
+	doc := md.Parser().Parse(reader)
+	//doc.Dump(reader.Source(), 0)
 	tree, err := toc.Inspect(doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
 	var renderedToc *HTMLElement
 	if err != nil {

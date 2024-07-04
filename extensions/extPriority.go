@@ -48,8 +48,9 @@ FootnoteASTTransformer       999
 */
 
 const (
-	priorityAlertParser            = 1001
-	priorityAlertTransformer       = 100
+	priorityAlertParser            = 150 //Must be before links
+	priorityAlertRenderer          = 1000
+	priorityAlertTransformer       = 1000
 	priorityAttribListParser       = 2000
 	priorityAttribListTransformer  = 1000
 	priorityLinkRewriteTransformer = 0

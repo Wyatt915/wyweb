@@ -49,14 +49,14 @@ func galleryItemToListItem(item GalleryItem) *HTMLElement {
 	return listing
 }
 
-func buildTagListing(query url.Values, crumbs *HTMLElement) *HTMLElement {
+func buildTagListing(tree *ConfigTree, query url.Values, crumbs *HTMLElement) *HTMLElement {
 	taglist, ok := query["tags"]
 	if !ok {
 		panic("No Tags Specified")
 	}
 	listingData := make([]Listable, 0)
 	for _, tag := range taglist {
-		listingData = util.ConcatUnique(listingData, globalTree.GetItemsByTag(tag))
+		listingData = util.ConcatUnique(listingData, tree.GetItemsByTag(tag))
 	}
 	sort.Slice(listingData, func(i, j int) bool {
 		return listingData[i].GetDate().After(listingData[j].GetDate())
