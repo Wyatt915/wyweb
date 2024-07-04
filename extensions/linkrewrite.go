@@ -61,10 +61,9 @@ type linkRewrite struct {
 }
 
 func (e *linkRewrite) Extend(m goldmark.Markdown) {
-	p := 0
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
-			util.Prioritized(linkRewriteTransformer{e.subdir}, p),
+			util.Prioritized(linkRewriteTransformer{e.subdir}, priorityLinkRewriteTransformer),
 		),
 	)
 }

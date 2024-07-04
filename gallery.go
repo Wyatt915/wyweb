@@ -154,7 +154,6 @@ func removeExt(name string) string {
 func createThumbnails(path string, images []string) error {
 	defer timer("createThumbnails")()
 	thumbdir := filepath.Join(path, "thumbs")
-	println(thumbdir)
 	stat, err := os.Stat(path)
 	if err != nil {
 		return err
@@ -206,17 +205,16 @@ func PairUp(path string, fullsized []string) []imgPair {
 	for _, full := range fullsized {
 		thumb, ok := thumbMap[filepath.Base(full)]
 		if !ok {
-			fmt.Printf("Could not find thumb for %s", full)
+			log.Printf("Could not find thumb for %s", full)
 			continue
 		}
-		println(full, thumb)
 		matches = append(matches, thumb)
 		result = append(result, imgPair{Full: full, Thumb: thumb})
 	}
 	//orphans := make([]string, 0) //An orphan is a thumbnail withourt a corresponding fullsized image
 	for _, entry := range thumbfiles {
 		if !slices.Contains(matches, filepath.Join(thumbdir, entry.Name())) {
-			fmt.Printf("Removing %s", filepath.Join(thumbdir, entry.Name()))
+			log.Printf("Removing %s", filepath.Join(thumbdir, entry.Name()))
 			os.Remove(filepath.Join(thumbdir, entry.Name()))
 		}
 	}
@@ -435,21 +433,21 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	return out
 }
 
-func buildGallery(node *ConfigNode) {
+func buildGallery(node *ConfigNode) error {
 	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
-	main := NewHTMLElement("body", Class("imagegallery"))
+	main := NewHTMLElement("body", Class("gallery-page"))
 	header := main.AppendNew("header")
 	header.Append(breadcrumbs(node))
-	header.AppendNew("h1").AppendText(node.Resolved.PageData.Title)
-	header.AppendNew("div", Class("description")).AppendText(node.Resolved.PageData.Description)
+	header.AppendNew("h1").AppendText(node.Resolved.Title)
+	header.AppendNew("div", Class("description")).AppendText(node.Resolved.Description)
 	grid := arrangeImages(pairs, 4, main)
 	galleryElem := main.AppendNew("div", Class("gallery"))
-	galleryRow := galleryElem.AppendNew("div", Class("galleryrow"))
+	galleryRow := galleryElem.AppendNew("div", Class("gallery-row"))
 	imageNum := 0
 	for _, col := range grid {
-		galleryCol := galleryRow.AppendNew("div", Class("gallerycol"))
+		galleryCol := galleryRow.AppendNew("div", Class("gallery-col"))
 		for _, pair := range col {
 			attr := map[string]string{
 				"src":            pair.Thumb,
@@ -463,4 +461,5 @@ func buildGallery(node *ConfigNode) {
 		}
 	}
 	node.Resolved.HTML = main
+	return nil
 }

@@ -112,7 +112,7 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*ConfigNode, error) {
 // includeExclude resolves which includables (styles or scripts) will be used on the page.
 // local - the new includables of the cueent node
 // include - the in
-func includeExclude(local []string, include []string, exclude []string) ([]string, error) {
+func includeExclude(local []string, include []string, exclude []string) []string {
 	result := make([]string, 0)
 	for _, name := range local {
 		if slices.Contains(exclude, name) {
@@ -130,7 +130,24 @@ func includeExclude(local []string, include []string, exclude []string) ([]strin
 			result = append(result, name)
 		}
 	}
-	return result, nil
+	return result
+}
+func (tree *ConfigTree) resolveResourceDeps(res []string) []string {
+	names := make([]string, len(res))
+	copy(names, res)
+	keepGoing := true
+	for keepGoing {
+		keepGoing = false
+		for i := 0; i < len(names); i++ {
+			for _, dep := range tree.Resources[names[i]].DependsOn {
+				if !slices.Contains(names, dep) {
+					keepGoing = true
+					names = append(names, dep)
+				}
+			}
+		}
+	}
+	return names
 }
 
 func (node *ConfigNode) resolve() error {
@@ -184,10 +201,10 @@ func (node *ConfigNode) resolve() error {
 			_, ok := node.Tree.Resources[name]
 			if !ok {
 				log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
-			} else {
-				node.Tree.Resources[name] = value
-				local = append(local, name)
+				continue
 			}
+			node.Tree.Resources[name] = value
+			local = append(local, name)
 		}
 		includes := util.ConcatUnique(head.Include, node.Parent.Resolved.Resources)
 		excludes := (*node.Parent.Data).GetHeadData().Exclude
@@ -200,7 +217,7 @@ func (node *ConfigNode) resolve() error {
 			}
 		}
 		excludes = util.ConcatUnique(excludes[:n], head.Exclude)
-		node.Resolved.Resources, _ = includeExclude(local, includes, excludes)
+		node.Resolved.Resources = node.Tree.resolveResourceDeps(includeExclude(local, includes, excludes))
 	default:
 		log.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
 	}
@@ -409,37 +426,8 @@ type HTMLHeadData struct {
 func (tree *ConfigTree) GetDefaultHead() *HTMLHeadData {
 	tree.mu.Lock()
 	defer tree.mu.Unlock()
-	resolved := tree.Root.Resolved
-	styles := make([]interface{}, 0)
-	scripts := make([]interface{}, 0)
-	for _, name := range resolved.Resources {
-		res, ok := tree.Resources[name]
-		if !ok {
-			log.Printf("%s does not exist in the resource registry.\n", name)
-			continue
-		}
-		var value interface{}
-		switch res.Method {
-		case "raw":
-			value = RawResource{String: res.Value, Attributes: res.Attributes}
-		case "url":
-			value = URLResource{String: res.Value, Attributes: res.Attributes}
-		default:
-			log.Printf("Unknown method for resource %s: %s\n", name, res.Type)
-		}
-		switch res.Type {
-		case "style":
-			styles = append(styles, value)
-		case "script":
-			scripts = append(scripts, value)
-		default:
-			log.Printf("Unknown type for resource %s: %s\n", name, res.Type)
-		}
-	}
-	out := &HTMLHeadData{
-		Styles:  styles,
-		Scripts: scripts,
-	}
+	out := tree.Root.GetHeadData()
+	(*out).Title = ""
 	return out
 }
 
@@ -453,16 +441,16 @@ func (node *ConfigNode) printTree(level int) {
 	}
 }
 
-func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Distillate) *HTMLHeadData {
-	tree.mu.Lock()
-	defer tree.mu.Unlock()
-	page := (*meta).GetPageData()
+func (node *ConfigNode) GetHeadData() *HTMLHeadData {
 	styles := make([]interface{}, 0)
 	scripts := make([]interface{}, 0)
-	for _, name := range resolved.Resources {
-		res, ok := tree.Resources[name]
+	for _, name := range node.Resolved.Resources {
+		res, ok := node.Tree.Resources[name]
 		if !ok {
 			log.Printf("%s does not exist in the resource registry.\n", name)
+			continue
+		}
+		if res.Value == "" {
 			continue
 		}
 		var value interface{}
@@ -484,8 +472,8 @@ func (tree *ConfigTree) GetHeadData(meta *WyWebMeta, resolved *Distillate) *HTML
 		}
 	}
 	out := &HTMLHeadData{
-		Title:   page.Title,
-		Meta:    resolved.Meta,
+		Title:   node.Resolved.Title,
+		Meta:    node.Resolved.Meta,
 		Styles:  styles,
 		Scripts: scripts,
 	}

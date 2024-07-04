@@ -35,6 +35,7 @@ type Resource struct {
 	Type       string            `yaml:"type,omitempty"`
 	Method     string            `yaml:"method,omitempty"`
 	Value      string            `yaml:"value,omitempty"`
+	DependsOn  []string          `yaml:"depends_on,omitempty"`
 }
 
 type HeadData struct {
@@ -231,7 +232,6 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 	case "!gallery":
 		var gallery WyWebGallery
 		if err := node.Decode(&gallery); err != nil {
-			log.Printf("%+v\n", err)
 			return err
 		}
 		d.Data = &gallery
@@ -257,6 +257,7 @@ func ReadWyWeb(dir string) (WyWebMeta, error) {
 	var meta Document
 	err = yaml.Unmarshal(wywebData, &meta)
 	if err != nil {
+		log.Println(string(wywebData))
 		return nil, err
 	}
 	return meta.Data, nil
