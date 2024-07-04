@@ -59,6 +59,127 @@ My favorite of the bunch, a **gallery** is a directory of images. WyWeb will sca
 images, automatically create thumbnails to save on bandwidth, and present the reader with an
 aesthetically pleasing grid of images to click on.
 
+## WyWeb Markdown features
+WyWeb is built on [Goldmark](https://github.com/yuin/goldmark) and supports most standard markdown features and
+extensions, as well as some unique quality of life improvements.
+
+### Standard extensions
+  - Tables
+  - Footnotes
+  - Typographer (Punctuation substitution à la [smartypants](https://daringfireball.net/projects/smartypants/))
+  - TaskList
+  - Strikethrough 
+  - Autolinks
+
+### Custom Extensions
+
+The custom functionality of WyWeb is intended to further reduce the need for writing HTML directly.
+#### Smart links
+Say you are writing a blog post for your website, `blofeld-from-spectre.evil`. The post lives in the blog subdirectory of the site's root directory
+like so : `path/to/blofeld-from-spectre.evil/blog/my_first_post`. You have some images in this directory that you would like to
+include in your post:
+```text
+/path/to/blofeld-from-spectre.evil
+├── wyweb
+└── blog
+    └── my_first_post
+        ├── article.md
+        ├── my_cat_mittens.jpg
+        ├── my_evil_fortress.jpg
+        └── wyweb
+```
+Rather than having to specify the full path of these images,
+```markdown
+# My first blog post :3
+Welcome to my blog! This is my cat mittens ![A beautiful Persian cat](/blog/my_first_post/my_cat_mittens.jpg) she is
+silly and likes to have her tummy scratched. This is my evil fortress from where I devise new and cruel ways to extort
+money from powerful governments ![Do not look this is a secret](/blog/my_first_post/my_evil_fortress.jpg)
+```
+
+One may instead simply provide the base file name of the images or media:
+
+```markdown
+# My first blog post :3
+Welcome to my blog! This is my cat mittens ![A beautiful Persian cat](my_cat_mittens.jpg) she is
+silly and likes to have her tummy scratched. This is my evil fortress from where I devise new and cruel ways to extort
+money from powerful governments ![Do not look this is a secret](my_evil_fortress.jpg)
+```
+
+#### Smart media embedding
+WyWeb uses the same syntax for images to include audio and video media in a webpage. The following markdown text
+
+```markdown
+Here is a video of Mittens playing with a ball of yarn
+![](mymovie.webm)
+
+Here is a recording of the Atropian Dictator discussing his favorite Pokémon:
+![](blackmail.mp3)
+```
+
+will be rendered as
+
+```HTML
+<p>
+    Here is a video of Mittens playing with a ball of yarn
+    <video controls autoplay loop mute>
+        <source src="mymovie.webm" type="video/webm" />
+    </video>
+</p>
+<p>
+    Here is a recording of the Atropian Dictator discussing his favorite Pokémon:
+    <audio controls>
+        <source src="blackmail.mp3" type="audio/mp3" />
+    </audio>
+</p>
+```
+
+Media type detection is resolved by the file extension. Though this is a somewhat naïve approach, it is very fast and
+largely accurate.
+
+> [!TIP]
+> **Supported filetypes for video**
+>
+> `webm`, `mp4`, `mkv`, `ogv`
+
+> [!TIP]
+> **Supported filetypes for audio**
+>
+> `mp3`, `ogg`, `wav`, `flac`
+
+#### SVG Embedding
+Embedding SVG source in HTML makes the graphic part of the DOM; this makes it easier to style with CSS or manipulate
+with JavaScript.
+
+
+```markdown
+This will produce an `<img>` element ![](diagram.svg)
+
+This will embed the SVG XML directly in the page ![%](diagram.svg)
+```
+
+> [!NOTE]
+> WyWeb may support arbitrary file embedding in the future, eliminating the need for server-side includes.
+
+#### Attributes
+Wyweb allows attributes on arbitrary nodes. Currently, attributes only support classes and IDs. 
+
+```markdown
+This image has the class "thumbnail" ![](thumb.jpg){:.thumbnail}
+
+This image has the id "focus" ![](blur.png){:#focus}
+
+This image has several classes and IDs ![]("kitten.jpg"){:#kitten #hero-image .thumbnail .center}
+```
+
+Is rendered as
+
+```HTML
+<p>This image has the class &ldquo;thumbnail&rdquo; <img src="thumb.jpg" alt="" class="thumbnail" /></p>
+<p>This image has the id &ldquo;focus&rdquo; <img src="blur.png" alt="" id="focus" /></p>
+<p>This image has several classes and IDs <img src="%22kitten.jpg%22" alt="" class="thumbnail center" id="kitten hero-image" /></p>
+```
+
+
 ## WyWeb Files
 All types of `wyweb` files have a large overlap of settings they support, but for each type of page,
 there are some settings that would not make sense to apply to other types of page. To prevent the
