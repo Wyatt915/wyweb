@@ -9,17 +9,22 @@ import (
 	"wyweb.site/wyweb/util"
 )
 
+func makeTagContainer(tags []string) *HTMLElement {
+	tagcontainer := NewHTMLElement("div", Class("tag-container"))
+	tagcontainer.AppendText("Tags")
+	taglist := tagcontainer.AppendNew("div", Class("tag-list"))
+	for _, tag := range tags {
+		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+url.QueryEscape(tag))).AppendText(tag)
+	}
+	return tagcontainer
+}
+
 func postToListItem(post *WyWebPost) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(post.Path))
 	link.AppendNew("h2").AppendText(post.Title)
 	listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
-	tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
-	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("taglist"))
-	for _, tag := range post.Tags {
-		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
-	}
+	listing.Append(makeTagContainer(post.Tags))
 	return listing
 }
 
@@ -40,12 +45,7 @@ func galleryItemToListItem(item GalleryItem) *HTMLElement {
 	infoContainer.AppendNew("span", Class("gallery-info-medium")).AppendText(item.Medium)
 	infoContainer.AppendNew("span", Class("gallery-info-location")).AppendText(item.Location)
 	infoContainer.AppendNew("span", Class("gallery-info-description")).AppendText(item.Description)
-	tagcontainer := listing.AppendNew("div", Class("tag-container"))
-	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("tag-list"))
-	for _, tag := range item.Tags {
-		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+tag)).AppendText(tag)
-	}
+	listing.Append(makeTagContainer(item.Tags))
 	return listing
 }
 
