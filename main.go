@@ -32,6 +32,8 @@ const fileNotFound = `
 </html>
 `
 
+var VERSION string
+
 func timer(name string) func() {
 	start := time.Now()
 	return func() {
@@ -283,6 +285,7 @@ func TryChown(sockfile, group string) error {
 
 func WyWebStart(sockfile, group string) {
 	defer os.Remove(sockfile)
+	fmt.Printf("WyWeb version %s\n", VERSION)
 	socket, err := TryListen(sockfile)
 	if err != nil {
 		log.Println(err.Error())
@@ -303,7 +306,12 @@ func WyWebStart(sockfile, group string) {
 func main() {
 	sock := flag.String("sock", "/tmp/wyweb.sock", "Path to the unix domain socket used by WyWeb")
 	grp := flag.String("grp", "www-data", "Group of the unix domain socket used by WyWeb (Should be the accessible by your reverse proxy)")
+	version := flag.Bool("v", false, "Print version and exit")
 	flag.Parse()
+	if *version {
+		println(VERSION)
+		os.Exit(0)
+	}
 	log.SetFlags(log.Lshortfile)
 	// Cleanup the sockfile.
 	c := make(chan os.Signal, 1)
