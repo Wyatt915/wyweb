@@ -27,24 +27,24 @@ func galleryItemToListItem(item GalleryItem) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(item.Filename))
 	link.AppendNew("h2").AppendText(item.Title)
-	gl := listing.AppendNew("div", Class("galleryListing"))
-	gl.AppendNew("div", Class("imgContainer")).AppendNew("a", Href(item.GalleryPath)).AppendNew(
+	gl := listing.AppendNew("div", Class("gallery-listing"))
+	gl.AppendNew("div", Class("img-container")).AppendNew("a", Href(item.GalleryPath)).AppendNew(
 		"img",
-		Class("galleryImg"),
+		Class("gallery-img"),
 		map[string]string{
 			"src": filepath.Join(item.GalleryPath, item.Filename),
 			"alt": item.Alt,
 		})
-	infoContainer := gl.AppendNew("div", Class("infoContainer"))
-	infoContainer.AppendNew("span", Class("galleryInfoArtist")).AppendText(item.Artist)
-	infoContainer.AppendNew("span", Class("galleryInfoMedium")).AppendText(item.Medium)
-	infoContainer.AppendNew("span", Class("galleryInfoLocation")).AppendText(item.Location)
-	infoContainer.AppendNew("span", Class("galleryInfoDescription")).AppendText(item.Description)
-	tagcontainer := listing.AppendNew("div", Class("tagcontainer"))
+	infoContainer := gl.AppendNew("div", Class("info-container"))
+	infoContainer.AppendNew("span", Class("gallery-info-artist")).AppendText(item.Artist)
+	infoContainer.AppendNew("span", Class("gallery-info-medium")).AppendText(item.Medium)
+	infoContainer.AppendNew("span", Class("gallery-info-location")).AppendText(item.Location)
+	infoContainer.AppendNew("span", Class("gallery-info-description")).AppendText(item.Description)
+	tagcontainer := listing.AppendNew("div", Class("tag-container"))
 	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("taglist"))
+	taglist := tagcontainer.AppendNew("div", Class("tag-list"))
 	for _, tag := range item.Tags {
-		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+tag)).AppendText(tag)
 	}
 	return listing
 }

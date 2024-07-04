@@ -214,11 +214,11 @@ func buildPost(node *ConfigNode) error {
 	article := body.AppendNew("article")
 	buildArticleHeader(node, title, article)
 	article.AppendText(temp.String()).NoIndent()
-	tagcontainer := article.AppendNew("div", Class("tagcontainer"))
+	tagcontainer := article.AppendNew("div", Class("tag-container"))
 	tagcontainer.AppendText("Tags")
-	taglist := tagcontainer.AppendNew("div", Class("taglist"))
+	taglist := tagcontainer.AppendNew("div", Class("tag-list"))
 	for tag := range node.registeredTags {
-		taglist.AppendNew("a", Class("taglink"), Href("/tags?tags="+tag)).AppendText(tag)
+		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+tag)).AppendText(tag)
 	}
 	resolved.HTML = body
 	return nil
