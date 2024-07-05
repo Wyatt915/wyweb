@@ -82,7 +82,7 @@ func buildDirListing(node *ConfigNode) error {
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	body := NewHTMLElement("body")
 	page := body.AppendNew("article")
-	header := page.AppendNew("header", Class("listingheader"))
+	header := page.AppendNew("header", Class("listing-header"))
 	header.Append(breadcrumbs)
 	header.AppendNew("h1").AppendText(title)
 	page.AppendNew("div", Class("description")).AppendText(description)
