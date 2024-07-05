@@ -80,7 +80,8 @@ func buildDirListing(node *ConfigNode) error {
 }
 
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
-	page := NewHTMLElement("article")
+	body := NewHTMLElement("body")
+	page := body.AppendNew("article")
 	header := page.AppendNew("header", Class("listingheader"))
 	header.Append(breadcrumbs)
 	header.AppendNew("h1").AppendText(title)
@@ -97,5 +98,5 @@ func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description
 			continue
 		}
 	}
-	return page
+	return body
 }

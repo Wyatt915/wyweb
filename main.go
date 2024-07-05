@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	_ "embed"
 	"flag"
 	"fmt"
 	"log"
@@ -69,6 +70,22 @@ func buildHead(headData HTMLHeadData) *HTMLElement {
 	}
 	head.AppendText(strings.Join(headData.Meta, "\n"))
 	return head
+}
+
+//go:embed logo.svg
+var logoString string
+
+func buildFooter(node *ConfigNode) *HTMLElement {
+	footer := NewHTMLElement("footer")
+	logoContainer := footer.AppendNew("div", Class("wyweb-logo"))
+	logoContainer.AppendNew("span").AppendText("Powered by")
+	logoContainer.AppendText(logoString)
+	logoContainer.AppendNew("a", Href("https://wyweb.site"))
+	copyrightMsg := footer.AppendNew("span", Class("copyright"))
+	copyrightMsg.AppendText(
+		fmt.Sprintf("Copyright © %d %s", time.Now().Year(), node.Resolved.Copyright),
+	)
+	return footer
 }
 
 func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData) (bytes.Buffer, error) {
@@ -168,6 +185,7 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 			w.WriteHeader(500)
 			return
 		}
+		node.Resolved.HTML.Append(buildFooter(node))
 	}
 	if err != nil {
 		w.WriteHeader(404)

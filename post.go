@@ -220,6 +220,7 @@ func buildPost(node *ConfigNode) error {
 	for tag := range node.registeredTags {
 		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+tag)).AppendText(tag)
 	}
+	body.Append(buildFooter(node))
 	resolved.HTML = body
 	return nil
 }
