@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -123,6 +122,9 @@ func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 	}
 	var crumb *HTMLElement
 	for _, link := range crumbs {
+		if link.Path == "" || link.Text == "" {
+			continue
+		}
 		crumb = ol.AppendNew("li").AppendNew("a", Href(link.Path))
 		crumb.AppendText(link.Text)
 	}
@@ -146,24 +148,10 @@ func GetHost(req *http.Request) string {
 	return req.Host
 }
 
-func RouteTags(tree *ConfigTree, w http.ResponseWriter, req *http.Request) {
-	query, err := url.ParseQuery(req.URL.RawQuery)
-	if err != nil {
-		w.WriteHeader(404)
-		w.Write([]byte(fileNotFound))
-		return
-	}
-	referer, _ := url.Parse(req.Referer())
-	var crumbs *HTMLElement
-	if referer.Hostname() == GetHost(req) {
-		refPath := strings.TrimPrefix(referer.Path, "/")
-		refNode, err := tree.Search(refPath)
-		if err == nil {
-			crumbs = breadcrumbs(refNode, WWNavLink{Path: req.URL.String(), Text: "Tags"})
-		}
-	}
-	page := buildTagListing(tree, query, crumbs)
-	headData := tree.GetDefaultHead()
+func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *http.Request) {
+	crumbs := breadcrumbs(node, WWNavLink{Path: strings.TrimPrefix(req.URL.String(), "/"), Text: "Tags"})
+	page := buildTagListing(node, taglist, crumbs)
+	headData := node.Tree.GetDefaultHead()
 	headData.Title = "Tags"
 	buf, _ := buildDocument(page, *headData)
 	w.Write(buf.Bytes())
@@ -241,9 +229,10 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	raw := strings.TrimPrefix(req.URL.Path, "/")
-	path, _ := filepath.Rel(".", raw) // remove that pesky leading slash
-	if path == "tags" {
-		RouteTags(realm, w, req)
+	path, _ := filepath.Rel(".", raw)
+	if raw == "tags" {
+		taglist := req.URL.Query()["tags"]
+		RouteTags(realm.Root, taglist, w, req)
 		return
 	}
 	node, err := realm.Search(path)
@@ -257,6 +246,11 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
 		log.Printf("Bizarro error bruv\n")
+		return
+	}
+
+	if taglist, ok := req.URL.Query()["tags"]; ok {
+		RouteTags(node, taglist, w, req)
 		return
 	}
 

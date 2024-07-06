@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"math/bits"
 	"os"
 	"path/filepath"
 	"strings"
@@ -85,6 +86,7 @@ type WyWebPost struct {
 }
 
 type GalleryItem struct {
+	id          uint64
 	Addenda     string    `yaml:"addenda,omitempty"`
 	Alt         string    `yaml:"alt,omitempty"`
 	Artist      string    `yaml:"artist,omitempty"`
@@ -98,8 +100,35 @@ type GalleryItem struct {
 	GalleryPath string
 }
 
-func (n GalleryItem) GetDate() time.Time {
+func (n *GalleryItem) GetDate() time.Time {
 	return n.Date
+}
+
+func (n *GalleryItem) GetID() uint64 {
+	return n.id
+}
+
+func (n *GalleryItem) GetTitle() string {
+	return n.Title
+}
+
+func (n *GalleryItem) SetID() {
+	epoch := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
+	age := uint64((n.Date.Sub(epoch)).Hours()/24) & 0xFFFF // 16 bits will last until June 2179
+	n.id = (age << (64 - 16))
+	bitsRemaining := 64 - 16
+	for _, char := range n.Filename {
+		runeSize := 32 - bits.LeadingZeros32(uint32(char))
+		//fmt.Printf("%s%b\n", strings.Repeat(" ", 64-bitsRemaining), uint32(char))
+		if runeSize < bitsRemaining {
+			n.id = n.id | uint64(char)<<(bitsRemaining-runeSize)
+		} else {
+			n.id = n.id | uint64(char)>>(runeSize-bitsRemaining)
+			break
+		}
+		bitsRemaining -= runeSize
+	}
+	//fmt.Printf("%064b\n\n", n.id)
 }
 
 type WyWebGallery struct {
@@ -233,6 +262,9 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 		var gallery WyWebGallery
 		if err := node.Decode(&gallery); err != nil {
 			return err
+		}
+		for idx := range gallery.GalleryItems {
+			gallery.GalleryItems[idx].SetID()
 		}
 		d.Data = &gallery
 	default:

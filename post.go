@@ -217,10 +217,9 @@ func buildPost(node *ConfigNode) error {
 	tagcontainer := article.AppendNew("div", Class("tag-container"))
 	tagcontainer.AppendText("Tags")
 	taglist := tagcontainer.AppendNew("div", Class("tag-list"))
-	for tag := range node.registeredTags {
-		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+tag)).AppendText(tag)
+	for _, tag := range node.Tags {
+		taglist.AppendNew("a", Class("tag-link"), Href("/"+filepath.Join(node.Parent.Path, "?tags=")+tag)).AppendText(tag)
 	}
-	body.Append(buildFooter(node))
 	resolved.HTML = body
 	return nil
 }

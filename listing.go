@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"math"
 	"net/url"
 	"path/filepath"
 	"sort"
@@ -14,7 +16,7 @@ func makeTagContainer(tags []string) *HTMLElement {
 	tagcontainer.AppendText("Tags")
 	taglist := tagcontainer.AppendNew("div", Class("tag-list"))
 	for _, tag := range tags {
-		taglist.AppendNew("a", Class("tag-link"), Href("/tags?tags="+url.QueryEscape(tag))).AppendText(tag)
+		taglist.AppendNew("a", Class("tag-link"), Href("?tags="+url.QueryEscape(tag))).AppendText(tag)
 	}
 	return tagcontainer
 }
@@ -49,14 +51,61 @@ func galleryItemToListItem(item GalleryItem) *HTMLElement {
 	return listing
 }
 
-func buildTagListing(tree *ConfigTree, query url.Values, crumbs *HTMLElement) *HTMLElement {
-	taglist, ok := query["tags"]
-	if !ok {
-		panic("No Tags Specified")
+func buildTagCloud(node *ConfigNode, cloud *HTMLElement, crumbs *HTMLElement) *HTMLElement {
+	body := NewHTMLElement("body")
+	header := body.AppendNew("header", Class("listing-header"))
+	header.Append(crumbs)
+	header.AppendNew("h1").AppendText("Tag Cloud")
+	page := body.AppendNew("article")
+	//header.AppendNew("div", Class("description")).AppendText(description)
+	page.Append(cloud)
+	body.Append(buildFooter(node))
+	return body
+}
+
+func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *HTMLElement {
+	if len(taglist) == 0 || (len(taglist) == 1 && taglist[0] == "") {
+		cloud := NewHTMLElement("body")
+		div := cloud.AppendNew("div", Class("tag-cloud"))
+		var recordHigh float32 = 0
+		var recordLow float32 = math.MaxFloat32
+		for _, items := range node.Tree.TagDB {
+			if float32(len(items)) > recordHigh {
+				recordHigh = float32(len(items))
+			}
+			if float32(len(items)) < recordLow {
+				recordLow = float32(len(items))
+			}
+		}
+		TagDB := node.Tree.TagDB
+		if node != node.Tree.Root {
+			TagDB = node.TagDB
+		}
+		for tag, items := range TagDB {
+			qs := url.Values(map[string][]string{"tags": {tag}}).Encode()
+			div.AppendNew("span", map[string]string{
+				"style": fmt.Sprintf("font-size: %3.2frem", 1+(3*(float32(len(items))-recordLow)/(recordHigh-recordLow))),
+			}).AppendNew("a", Href("?"+qs)).AppendText(tag)
+		}
+		return buildTagCloud(node, cloud, crumbs)
 	}
 	listingData := make([]Listable, 0)
-	for _, tag := range taglist {
-		listingData = util.ConcatUnique(listingData, tree.GetItemsByTag(tag))
+	var msg bytes.Buffer
+	if node == node.Tree.Root {
+		for _, tag := range taglist {
+			listingData = util.ConcatUnique(listingData, node.Tree.GetItemsByTag(tag))
+		}
+		msg.WriteString(fmt.Sprintf("Items tagged with %v", taglist))
+	} else {
+		for _, tag := range taglist {
+			listingData = util.ConcatUnique(listingData, node.GetItemsByTag(tag))
+		}
+		msg.WriteString(fmt.Sprintf("Items in %s tagged with %v", node.Resolved.Title, taglist))
+		msg.WriteString("\n<br>\n")
+		qs := url.Values(map[string][]string{"tags": taglist}).Encode()
+		alltags := NewHTMLElement("a", Href("/tags?"+qs))
+		alltags.AppendText(fmt.Sprintf("All items tagged with %v", taglist))
+		RenderHTML(alltags, &msg)
 	}
 	sort.Slice(listingData, func(i, j int) bool {
 		return listingData[i].GetDate().After(listingData[j].GetDate())
@@ -64,7 +113,7 @@ func buildTagListing(tree *ConfigTree, query url.Values, crumbs *HTMLElement) *H
 	if crumbs == nil {
 		crumbs = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
 	}
-	return buildListing(listingData, crumbs, "Tags", fmt.Sprintf("Items tagged with %v", taglist))
+	return buildListing(listingData, crumbs, "Tags", msg.String())
 }
 
 func buildDirListing(node *ConfigNode) error {
@@ -81,19 +130,19 @@ func buildDirListing(node *ConfigNode) error {
 
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	body := NewHTMLElement("body")
+	header := body.AppendNew("header", Class("listing-header"))
 	page := body.AppendNew("article")
-	header := page.AppendNew("header", Class("listing-header"))
 	header.Append(breadcrumbs)
 	header.AppendNew("h1").AppendText(title)
-	page.AppendNew("div", Class("description")).AppendText(description)
+	header.AppendNew("div", Class("description")).AppendText(description)
 	for _, item := range items {
 		switch t := item.(type) {
 		case *ConfigNode:
 			if (*t.Data).GetType() == "post" {
 				page.Append(postToListItem((*t.Data).(*WyWebPost)))
 			}
-		case GalleryItem:
-			page.Append(galleryItemToListItem(t))
+		case *GalleryItem:
+			page.Append(galleryItemToListItem(*t))
 		default:
 			continue
 		}
