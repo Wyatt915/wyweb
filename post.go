@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -141,9 +142,9 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 
 	return buf, renderedToc, title, err
 }
-func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
+func buildArticleHeader(node *ConfigNode, title, crumbs, article *HTMLElement) {
 	header := article.AppendNew("header")
-	header.Append(breadcrumbs(node))
+	header.Append(crumbs)
 	header.Append(title)
 	info := header.AppendNew("div", Class("post-info"))
 	info.AppendNew("time",
@@ -195,7 +196,18 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func buildPost(node *ConfigNode) error {
+func buildPost(node *ConfigNode) ([]string, error) {
+	structuredData := map[string]interface{}{
+		"@context": "https://schema.org",
+		"@type":    "BlogPosting",
+		"author": map[string]interface{}{
+			"@type": "person",
+			"name":  node.Author,
+		},
+		"headline":      node.Title,
+		"datePublished": node.Date.Format(time.DateOnly),
+		"dateUpdated":   node.Updated.Format(time.DateOnly),
+	}
 	meta := (*node.Data).(*WyWebPost)
 	resolved := node
 	var mdtext []byte
@@ -206,13 +218,14 @@ func buildPost(node *ConfigNode) error {
 		mdtext, err = findIndex(meta.Path)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	temp, TOC, title, _ := mdConvert(mdtext, *node)
 	body := NewHTMLElement("body")
 	body.Append(TOC)
 	article := body.AppendNew("article")
-	buildArticleHeader(node, title, article)
+	crumbs, bcSD := breadcrumbs(node)
+	buildArticleHeader(node, title, crumbs, article)
 	article.AppendText(temp.String()).NoIndent()
 	tagcontainer := article.AppendNew("div", Class("tag-container"))
 	tagcontainer.AppendText("Tags")
@@ -221,5 +234,6 @@ func buildPost(node *ConfigNode) error {
 		taglist.AppendNew("a", Class("tag-link"), Href("/"+filepath.Join(node.Parent.Path, "?tags=")+tag)).AppendText(tag)
 	}
 	resolved.HTML = body
-	return nil
+	jsonld, _ := json.MarshalIndent(structuredData, "", "    ")
+	return []string{string(jsonld), bcSD}, nil
 }

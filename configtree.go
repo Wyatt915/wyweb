@@ -225,10 +225,8 @@ func (node *ConfigNode) resolveIncludes() {
 		local = append(local, name)
 	}
 	includes := util.ConcatUnique(node.Include, node.Parent.LocalResources)
-	log.Println(node.Path, "Includes:", includes)
 	excludes := make([]string, len(node.Parent.Exclude))
 	copy(excludes, node.Parent.Exclude)
-	log.Println(node.Path, "Excludes:", excludes)
 	// any excludes of the parent are overridden by local includes. Otherwise, they are inherited.
 	n := 0
 	for _, x := range excludes {
@@ -238,7 +236,6 @@ func (node *ConfigNode) resolveIncludes() {
 		}
 	}
 	excludes = util.ConcatUnique(excludes[:n], node.Exclude)
-	log.Println(node.Path, "Excludes:", excludes)
 	node.LocalResources = node.Tree.resolveResourceDeps(includeExclude(local, includes, excludes))
 }
 

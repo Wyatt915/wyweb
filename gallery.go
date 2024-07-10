@@ -433,13 +433,14 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	return out
 }
 
-func buildGallery(node *ConfigNode) error {
+func buildGallery(node *ConfigNode) ([]string, error) {
 	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
 	main := NewHTMLElement("body", Class("gallery-page"))
 	header := main.AppendNew("header")
-	header.Append(breadcrumbs(node))
+	bcHTML, bcSD := breadcrumbs(node)
+	header.Append(bcHTML)
 	header.AppendNew("h1").AppendText(node.Title)
 	header.AppendNew("div", Class("description")).AppendText(node.Description)
 	grid := arrangeImages(pairs, 4, main)
@@ -461,5 +462,5 @@ func buildGallery(node *ConfigNode) error {
 		}
 	}
 	node.HTML = main
-	return nil
+	return []string{bcSD}, nil
 }

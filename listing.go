@@ -111,12 +111,12 @@ func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 		return listingData[i].GetDate().After(listingData[j].GetDate())
 	})
 	if crumbs == nil {
-		crumbs = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
+		crumbs, _ = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
 	}
 	return buildListing(listingData, crumbs, "Tags", msg.String())
 }
 
-func buildDirListing(node *ConfigNode) error {
+func buildDirListing(node *ConfigNode) ([]string, error) {
 	children := make([]Listable, 0)
 	for _, child := range node.Children {
 		children = append(children, child)
@@ -124,8 +124,9 @@ func buildDirListing(node *ConfigNode) error {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].GetDate().After(children[j].GetDate())
 	})
-	node.HTML = buildListing(children, breadcrumbs(node), node.Title, node.Description)
-	return nil
+	crumbs, bcSD := breadcrumbs(node)
+	node.HTML = buildListing(children, crumbs, node.Title, node.Description)
+	return []string{bcSD}, nil
 }
 
 func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {

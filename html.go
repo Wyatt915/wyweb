@@ -183,7 +183,7 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 						text.WriteString("    ")
 					}
 				}
-				text.WriteString(strings.TrimSpace(line))
+				text.WriteString(line)
 				text.WriteByte('\n')
 			} else {
 				text.WriteString(strings.TrimSpace(line))

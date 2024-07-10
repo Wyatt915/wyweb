@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -87,17 +89,26 @@ func buildFooter(node *ConfigNode) *HTMLElement {
 	return footer
 }
 
-func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData) (bytes.Buffer, error) {
+func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData, structuredData ...string) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n")
 	document := NewHTMLElement("html")
-	document.Append(buildHead(headData))
+	head := buildHead(headData)
+	for _, data := range structuredData {
+		head.AppendNew("script", map[string]string{"type": "application+ld+json"}).AppendText(data)
+	}
+	document.Append(head)
 	document.Append(bodyHTML)
 	RenderHTML(document, &buf)
 	return buf, nil
 }
 
-func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
+func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) (*HTMLElement, string) {
+	structuredData := map[string]interface{}{
+		"@context": "https://schema.org",
+		"@type":    "BreadcrumbList",
+	}
+	itemListElement := make([]map[string]interface{}, 0)
 	nav := NewHTMLElement("nav", AriaLabel("Breadcrumbs"))
 	ol := nav.AppendNew("ol", Class("breadcrumbs"))
 	var crumbs []WWNavLink
@@ -121,15 +132,26 @@ func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 		crumbs = slices.Concat(crumbs, extraCrumbs)
 	}
 	var crumb *HTMLElement
+	idx := 1
 	for _, link := range crumbs {
 		if link.Path == "" || link.Text == "" {
 			continue
 		}
+		fullURL, _ := url.JoinPath("https://"+node.Tree.Domain, link.Path)
+		itemListElement = append(itemListElement, map[string]interface{}{
+			"@type":    "ListItem",
+			"position": idx,
+			"name":     link.Text,
+			"item":     fullURL,
+		})
+		idx++
 		crumb = ol.AppendNew("li").AppendNew("a", Href(link.Path))
 		crumb.AppendText(link.Text)
 	}
+	structuredData["itemListElement"] = itemListElement
 	crumb.Attributes["aria-current"] = "page"
-	return nav
+	jsonld, _ := json.MarshalIndent(structuredData, "", "    ")
+	return nav, string(jsonld)
 }
 
 func GetRemoteAddr(req *http.Request) string {
@@ -149,26 +171,27 @@ func GetHost(req *http.Request) string {
 }
 
 func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *http.Request) {
-	crumbs := breadcrumbs(node, WWNavLink{Path: strings.TrimPrefix(req.URL.String(), "/"), Text: "Tags"})
+	crumbs, bcsd := breadcrumbs(node, WWNavLink{Path: strings.TrimPrefix(req.URL.String(), "/"), Text: "Tags"})
 	page := buildTagListing(node, taglist, crumbs)
 	headData := node.Tree.GetDefaultHead()
 	headData.Title = "Tags"
-	buf, _ := buildDocument(page, *headData)
+	buf, _ := buildDocument(page, *headData, bcsd)
 	w.Write(buf.Bytes())
 }
 
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
+	var structuredData []string
 	meta := node.Data
 	if node.HTML == nil {
 		switch (*meta).(type) {
 		//case *WyWebRoot:
 		case *WyWebListing:
-			err = buildDirListing(node)
+			structuredData, err = buildDirListing(node)
 		case *WyWebPost:
-			err = buildPost(node)
+			structuredData, err = buildPost(node)
 		case *WyWebGallery:
-			err = buildGallery(node)
+			structuredData, err = buildGallery(node)
 		default:
 			w.WriteHeader(500)
 			return
@@ -179,7 +202,7 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
 	}
-	buf, _ := buildDocument(node.HTML, *node.GetHeadData())
+	buf, _ := buildDocument(node.HTML, *node.GetHeadData(), structuredData...)
 	w.Write(buf.Bytes())
 }
 
