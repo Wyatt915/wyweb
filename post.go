@@ -132,11 +132,11 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 			Attributes: map[string]string{"media": "print"},
 		}
 	}
-	if !slices.Contains(node.Resolved.Resources, StyleName) {
-		node.Resolved.Resources = append(node.Resolved.Resources, StyleName)
+	if !slices.Contains(node.LocalResources, StyleName) {
+		node.LocalResources = append(node.LocalResources, StyleName)
 	}
-	if !slices.Contains(node.Resolved.Resources, "algol") {
-		node.Resolved.Resources = append(node.Resolved.Resources, "algol")
+	if !slices.Contains(node.LocalResources, "algol") {
+		node.LocalResources = append(node.LocalResources, "algol")
 	}
 
 	return buf, renderedToc, title, err
@@ -150,7 +150,7 @@ func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
 		ID("publication-date"),
 		map[string]string{"datetime": node.Date.Format(time.DateOnly)},
 	).AppendText(node.Date.Format("Jan _2, 2006"))
-	info.AppendNew("span", ID("author")).AppendText(node.Resolved.Author)
+	info.AppendNew("span", ID("author")).AppendText(node.Author)
 	info.AppendNew("time",
 		ID("updated"),
 		map[string]string{"datetime": node.Updated.Format(time.RFC3339)},
@@ -160,20 +160,20 @@ func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
 		ID("navlink-prev"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.Prev.Path),
-	).AppendText(node.Resolved.Prev.Text)
+		Href(node.Prev.Path),
+	).AppendText(node.Prev.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-up"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.Up.Path),
-	).AppendText(node.Resolved.Up.Text)
+		Href(node.Up.Path),
+	).AppendText(node.Up.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-next"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.Next.Path),
-	).AppendText(node.Resolved.Next.Text)
+		Href(node.Next.Path),
+	).AppendText(node.Next.Text)
 }
 
 func findIndex(path string) ([]byte, error) {
@@ -197,7 +197,7 @@ func findIndex(path string) ([]byte, error) {
 
 func buildPost(node *ConfigNode) error {
 	meta := (*node.Data).(*WyWebPost)
-	resolved := node.Resolved
+	resolved := node
 	var mdtext []byte
 	var err error
 	if meta.Index != "" {

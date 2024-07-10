@@ -82,7 +82,7 @@ func buildFooter(node *ConfigNode) *HTMLElement {
 	logoContainer.AppendNew("a", Href("https://wyweb.site"))
 	copyrightMsg := footer.AppendNew("span", Class("copyright"))
 	copyrightMsg.AppendText(
-		fmt.Sprintf("Copyright © %d %s", time.Now().Year(), node.Resolved.Copyright),
+		fmt.Sprintf("Copyright © %d %s", time.Now().Year(), node.Copyright),
 	)
 	return footer
 }
@@ -109,7 +109,7 @@ func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
 		for temp != nil && idx >= 0 {
 			crumbs[idx] = WWNavLink{
 				Path: "/" + temp.Path,
-				Text: temp.Resolved.Title,
+				Text: temp.Title,
 			}
 			idx--
 			temp = temp.Parent
@@ -160,7 +160,7 @@ func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *h
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
 	meta := node.Data
-	if node.Resolved.HTML == nil {
+	if node.HTML == nil {
 		switch (*meta).(type) {
 		//case *WyWebRoot:
 		case *WyWebListing:
@@ -173,13 +173,13 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 			w.WriteHeader(500)
 			return
 		}
-		node.Resolved.HTML.Append(buildFooter(node))
+		node.HTML.Append(buildFooter(node))
 	}
 	if err != nil {
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
 	}
-	buf, _ := buildDocument(node.Resolved.HTML, *node.GetHeadData())
+	buf, _ := buildDocument(node.HTML, *node.GetHeadData())
 	w.Write(buf.Bytes())
 }
 

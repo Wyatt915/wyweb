@@ -16,32 +16,25 @@ import (
 	"wyweb.site/wyweb/util"
 )
 
-// A Distillate is the resolved and "distilled" data about a given webpage. It is the result of determining all includes
-// and excludes, as well as the final rendered HTML of the page.
-type Distillate struct {
-	PageData
-	HTML      *HTMLElement
-	Meta      []string // The actual html <meta> elements as text.
-	Resources []string // the names (keys) of resources requested by this page
-}
-
 type ConfigNode struct {
+	PageData
+	HeadData
 	// An id is constructed from the Date, Updated, and Resolved.Title fields.
 	// The first 16 bits count the number of days after 2000-01-01 the item was published.
 	// The next 8 bits count the number of days since the last update at the time the id was computed.
 	// The final 40 bits are the concatenation of UTF-8 codepoints (with leading zeroes removed) taken from
 	// Resolved.Titile.
-	id       uint64
-	Children map[string]*ConfigNode
-	Parent   *ConfigNode
-	Data     *WyWebMeta
-	Tree     *ConfigTree
-	Resolved *Distillate
-	Path     string
-	Date     time.Time
-	Updated  time.Time
-	TagDB    map[string][]Listable
-	Tags     []string
+	id             uint64
+	resolved       bool
+	HTML           *HTMLElement
+	Children       map[string]*ConfigNode
+	LocalResources []string
+	Data           *WyWebMeta
+	Parent         *ConfigNode
+	Path           string
+	TagDB          map[string][]Listable
+	Tags           []string
+	Tree           *ConfigTree
 }
 
 type Listable interface {
@@ -58,7 +51,7 @@ func (n *ConfigNode) GetID() uint64 {
 	return n.id
 }
 func (n *ConfigNode) GetTitle() string {
-	return n.Resolved.Title
+	return n.Title
 }
 func (n *ConfigNode) SetID() {
 	epoch := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
@@ -74,7 +67,7 @@ func (n *ConfigNode) SetID() {
 	//fmt.Printf("%s%08b\n", strings.Repeat(" ", 16), sinceUpdate)
 	n.id = (age << (64 - 16)) | (sinceUpdate << (64 - 16 - 8))
 	bitsRemaining := 64 - (16 + 8)
-	for _, char := range n.Resolved.Title {
+	for _, char := range n.Title {
 		runeSize := 32 - bits.LeadingZeros32(uint32(char))
 		//fmt.Printf("%s%b\n", strings.Repeat(" ", 64-bitsRemaining), uint32(char))
 		if runeSize < bitsRemaining {
@@ -92,7 +85,6 @@ func newConfigNode() ConfigNode {
 	var out ConfigNode
 	out.Children = make(map[string]*ConfigNode)
 	out.TagDB = make(map[string][]Listable)
-	out.Resolved = nil
 	return out
 }
 
@@ -146,7 +138,6 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*ConfigNode, error) {
 		Children: make(map[string]*ConfigNode),
 		TagDB:    make(map[string][]Listable),
 		Tree:     tree,
-		Resolved: nil,
 	}
 	parent.Children[directory] = &result
 	result.resolve()
@@ -208,74 +199,86 @@ func regiserTag(tag string, item Listable, tagdb *map[string][]Listable) {
 	}
 }
 
+func copyHeadData(dest *HeadData, src *HeadData) {
+	dest.Include = make([]string, len(src.Include))
+	dest.Exclude = make([]string, len(src.Exclude))
+	dest.Meta = make([]string, len(src.Meta))
+	copy(dest.Include, src.Include)
+	copy(dest.Exclude, src.Exclude)
+	copy(dest.Meta, src.Meta)
+	dest.Resources = make(map[string]Resource)
+	for k, v := range src.Resources {
+		dest.Resources[k] = v
+	}
+}
+
+func (node *ConfigNode) resolveIncludes() {
+	node.LocalResources = make([]string, 0)
+	local := make([]string, 0)
+	for name, value := range node.Resources {
+		_, ok := node.Tree.Resources[name]
+		if !ok {
+			log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
+			continue
+		}
+		node.Tree.Resources[name] = value
+		local = append(local, name)
+	}
+	includes := util.ConcatUnique(node.Include, node.Parent.LocalResources)
+	log.Println(node.Path, "Includes:", includes)
+	excludes := make([]string, len(node.Parent.Exclude))
+	copy(excludes, node.Parent.Exclude)
+	log.Println(node.Path, "Excludes:", excludes)
+	// any excludes of the parent are overridden by local includes. Otherwise, they are inherited.
+	n := 0
+	for _, x := range excludes {
+		if !slices.Contains(node.Include, x) {
+			excludes[n] = x
+			n++
+		}
+	}
+	excludes = util.ConcatUnique(excludes[:n], node.Exclude)
+	log.Println(node.Path, "Excludes:", excludes)
+	node.LocalResources = node.Tree.resolveResourceDeps(includeExclude(local, includes, excludes))
+}
+
+func (node *ConfigNode) inheritIfUndefined() {
+	if node.Updated.IsZero() {
+		node.Updated = node.Date
+	}
+	if node.Author == "" {
+		node.Author = node.Parent.Author
+	}
+	if node.Copyright == "" {
+		node.Copyright = node.Parent.Copyright
+	}
+}
+
 func (node *ConfigNode) resolve() error {
-	if node.Resolved != nil {
+	if node.resolved {
 		return nil
 	}
 	meta := node.Data
 	if meta == nil {
 		return nil
 	}
-	switch t := (*meta).(type) {
+	switch (*meta).(type) {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
-		node.Resolved = &Distillate{
-			PageData:  *temp.GetPageData(),
-			Meta:      temp.Meta,
-			Resources: make([]string, len(temp.Default.Resources)),
-			HTML:      nil,
-		}
-		if t.Path == "" {
-			t.Path = node.Path
-		}
-		copy(node.Resolved.Resources, temp.Default.Resources)
+		node.PageData = *temp.GetPageData()
+		copyHeadData(&node.HeadData, temp.GetHeadData())
+		node.LocalResources = make([]string, len(temp.Default.Resources))
+		copy(node.LocalResources, temp.Default.Resources)
+		node.resolved = true
 		return nil
 	case *WyWebPost, *WyWebListing, *WyWebGallery:
-		if node.Parent.Resolved == nil {
+		if !node.Parent.resolved {
 			node.Parent.resolve()
 		}
-		//var author string
-		//var copyright string
-		head := (*meta).GetHeadData()
-		page := (*meta).GetPageData()
-		node.Resolved = &Distillate{
-			PageData: *page,
-			Meta:     node.Parent.Resolved.Meta,
-			HTML:     nil,
-		}
-		node.Date = t.GetPageData().Date
-		node.Updated = t.GetPageData().Updated
-		if node.Updated.IsZero() {
-			node.Updated = node.Date
-		}
-		if node.Resolved.Author == "" {
-			node.Resolved.Author = node.Parent.Resolved.Author
-		}
-		if node.Resolved.Copyright == "" {
-			node.Resolved.Copyright = node.Parent.Resolved.Copyright
-		}
-		local := make([]string, 0)
-		for name, value := range head.Resources {
-			_, ok := node.Tree.Resources[name]
-			if !ok {
-				log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
-				continue
-			}
-			node.Tree.Resources[name] = value
-			local = append(local, name)
-		}
-		includes := util.ConcatUnique(head.Include, node.Parent.Resolved.Resources)
-		excludes := (*node.Parent.Data).GetHeadData().Exclude
-		// any excludes of the parent are overridden by local includes. Otherwise, they are inherited.
-		n := 0
-		for _, x := range excludes {
-			if !slices.Contains(head.Include, x) {
-				excludes[n] = x
-				n++
-			}
-		}
-		excludes = util.ConcatUnique(excludes[:n], head.Exclude)
-		node.Resolved.Resources = node.Tree.resolveResourceDeps(includeExclude(local, includes, excludes))
+		copyHeadData(&node.HeadData, (*meta).GetHeadData())
+		node.PageData = *(*meta).GetPageData()
+		node.Meta = node.Parent.Meta
+		node.resolveIncludes()
 	default:
 		log.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
 	}
@@ -304,6 +307,7 @@ func (node *ConfigNode) resolve() error {
 			}
 		}
 	}
+	node.resolved = true
 	return nil
 }
 
@@ -328,21 +332,20 @@ func setNavLinksOfChildren(node *ConfigNode) {
 		return siblings[i].Date.Before(siblings[j].Date)
 	})
 	var path, text string
-	for i, obj := range siblings {
-		res := obj.Resolved
+	for i := range siblings {
 		if i > 0 {
 			path = "/" + siblings[i-1].Path
-			text = siblings[i-1].Resolved.Title
-			setNavLink(&res.Prev, path, text)
+			text = siblings[i-1].Title
+			setNavLink(&siblings[i].Prev, path, text)
 		}
 		path, _ = filepath.Rel(".", node.Path)
 		path = "/" + path
-		text = node.Resolved.Title
-		setNavLink(&res.Up, path, text)
+		text = node.Title
+		setNavLink(&siblings[i].Up, path, text)
 		if i < len(siblings)-1 {
 			path = "/" + siblings[i+1].Path
-			text = siblings[i+1].Resolved.Title
-			setNavLink(&res.Next, path, text)
+			text = siblings[i+1].Title
+			setNavLink(&siblings[i].Next, path, text)
 		}
 	}
 }
@@ -381,12 +384,10 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 			Children: make(map[string]*ConfigNode),
 			TagDB:    make(map[string][]Listable),
 			Tree:     tree,
-			Resolved: nil,
-			Date:     meta.GetPageData().Date,
 		}
 		node.Children[filepath.Base(path)] = &child
-		child.resolve()
-		child.growTree(path, tree)
+		(&child).resolve()
+		(&child).growTree(path, tree)
 	}
 	setNavLinksOfChildren(node)
 	return status
@@ -401,7 +402,6 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 		Children: make(map[string]*ConfigNode),
 		Tree:     nil,
 		TagDB:    make(map[string][]Listable),
-		Resolved: nil,
 	}
 	out := ConfigTree{
 		Domain:       domain,
@@ -493,7 +493,7 @@ func (node *ConfigNode) printTree(level int) {
 	for range level {
 		print("    ")
 	}
-	println(node.Resolved.Title)
+	println(node.Title)
 	for _, child := range node.Children {
 		child.printTree(level + 1)
 	}
@@ -502,7 +502,7 @@ func (node *ConfigNode) printTree(level int) {
 func (node *ConfigNode) GetHeadData() *HTMLHeadData {
 	styles := make([]interface{}, 0)
 	scripts := make([]interface{}, 0)
-	for _, name := range node.Resolved.Resources {
+	for _, name := range node.LocalResources {
 		res, ok := node.Tree.Resources[name]
 		if !ok {
 			log.Printf("%s does not exist in the resource registry.\n", name)
@@ -530,8 +530,8 @@ func (node *ConfigNode) GetHeadData() *HTMLHeadData {
 		}
 	}
 	out := &HTMLHeadData{
-		Title:   node.Resolved.Title,
-		Meta:    node.Resolved.Meta,
+		Title:   node.Title,
+		Meta:    node.Meta,
 		Styles:  styles,
 		Scripts: scripts,
 	}

@@ -440,8 +440,8 @@ func buildGallery(node *ConfigNode) error {
 	main := NewHTMLElement("body", Class("gallery-page"))
 	header := main.AppendNew("header")
 	header.Append(breadcrumbs(node))
-	header.AppendNew("h1").AppendText(node.Resolved.Title)
-	header.AppendNew("div", Class("description")).AppendText(node.Resolved.Description)
+	header.AppendNew("h1").AppendText(node.Title)
+	header.AppendNew("div", Class("description")).AppendText(node.Description)
 	grid := arrangeImages(pairs, 4, main)
 	galleryElem := main.AppendNew("div", Class("gallery"))
 	galleryRow := galleryElem.AppendNew("div", Class("gallery-row"))
@@ -460,6 +460,6 @@ func buildGallery(node *ConfigNode) error {
 			imageNum++
 		}
 	}
-	node.Resolved.HTML = main
+	node.HTML = main
 	return nil
 }

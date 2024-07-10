@@ -100,7 +100,7 @@ func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 		for _, tag := range taglist {
 			listingData = util.ConcatUnique(listingData, node.GetItemsByTag(tag))
 		}
-		msg.WriteString(fmt.Sprintf("Items in %s tagged with %v", node.Resolved.Title, taglist))
+		msg.WriteString(fmt.Sprintf("Items in %s tagged with %v", node.Title, taglist))
 		msg.WriteString("\n<br>\n")
 		qs := url.Values(map[string][]string{"tags": taglist}).Encode()
 		alltags := NewHTMLElement("a", Href("/tags?"+qs))
@@ -124,7 +124,7 @@ func buildDirListing(node *ConfigNode) error {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].GetDate().After(children[j].GetDate())
 	})
-	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.Title, node.Resolved.Description)
+	node.HTML = buildListing(children, breadcrumbs(node), node.Title, node.Description)
 	return nil
 }
 
