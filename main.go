@@ -75,7 +75,6 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 			return
 		}
 		node.HTML.Append(BuildFooter(node))
-		log.Println(structuredData)
 	}
 	if err != nil {
 		w.WriteHeader(404)

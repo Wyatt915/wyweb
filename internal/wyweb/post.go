@@ -19,8 +19,10 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
 	gmText "github.com/yuin/goldmark/text"
+	gmUtil "github.com/yuin/goldmark/util"
 	"go.abhg.dev/goldmark/toc"
 
 	wwExt "wyweb.site/extensions"
@@ -29,7 +31,6 @@ import (
 
 func MagicPost(parent *ConfigNode, name string) *ConfigNode {
 	out := &ConfigNode{
-		Path:     filepath.Join(parent.Path, strings.TrimSuffix(name, ".post.md")),
 		Parent:   parent,
 		NodeKind: WWPOST,
 		Children: make(map[string]*ConfigNode),
@@ -37,10 +38,12 @@ func MagicPost(parent *ConfigNode, name string) *ConfigNode {
 		Tree:     parent.Tree,
 	}
 	meta, err := ReadWyWeb(filepath.Join(parent.Path, name), "!post")
-	meta.(*WyWebPost).Index = filepath.Join(parent.Path, name)
 	if err == nil {
+		meta.(*WyWebPost).Index = filepath.Join(parent.Path, name)
+		meta.(*WyWebPost).Path = filepath.Join(util.TrimMagicSuffix(parent.Path), strings.TrimSuffix(name, ".post.md"))
 		out.Data = &meta
 	}
+
 	return out
 }
 
@@ -76,16 +79,12 @@ func renderTOC(doc *ast.Node, text []byte) *HTMLElement {
 	return elem
 }
 
-func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
-	//node.Lock()
-	//defer node.Unlock()
-	defer util.Timer("mdConvert")()
-	StyleName := "catppuccin-mocha"
-	PostMD := goldmark.New(
+func newMarkdown(path string) goldmark.Markdown {
+	return goldmark.New(
 		goldmark.WithExtensions(
 			wwExt.EmbedMedia(),
 			wwExt.AttributeList(),
-			wwExt.LinkRewrite(node.Path),
+			wwExt.LinkRewrite(path),
 			wwExt.AlertExtension(),
 			meta.Meta,
 			extension.GFM,
@@ -106,12 +105,75 @@ func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *
 			html.WithUnsafe(),
 		),
 	)
-	var buf bytes.Buffer
-	var err error
-	reader := gmText.NewReader(text)
+}
 
-	doc := PostMD.Parser().Parse(reader)
-	//doc.Dump(reader.Source(), 0)
+func ParsePost(md goldmark.Markdown, text []byte, path string) ast.Node {
+	reader := gmText.NewReader(text)
+	doc := md.Parser().Parse(reader)
+	return doc
+}
+
+func GetTitleFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
+	if doc == nil {
+		if node.ParsedDocument != nil {
+			doc = *node.ParsedDocument
+		} else {
+			doc = ParsePost(newMarkdown(node.Path), text, node.Index)
+			node.ParsedDocument = &doc
+		}
+	}
+	titleNode := doc.FirstChild()
+	for titleNode != nil {
+		if titleNode.Kind() == ast.KindHeading && titleNode.(*ast.Heading).Level == 1 {
+			break
+		}
+		titleNode = titleNode.NextSibling()
+	}
+	if titleNode != nil {
+		h1Node := titleNode.(*ast.Heading)
+		txt := string(h1Node.Text(text))
+		if node.Title == "" {
+			(*node).Title = txt
+		}
+	}
+}
+
+func GetPreviewFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
+	md := newMarkdown(node.Path)
+	if doc == nil {
+		if node.ParsedDocument != nil {
+			doc = *node.ParsedDocument
+		} else {
+			doc = ParsePost(md, text, node.Index)
+			node.ParsedDocument = &doc
+		}
+	}
+	md.Renderer().AddOptions(
+		renderer.WithNodeRenderers(
+			gmUtil.Prioritized(&wwExt.PreviewRenderer{}, 0),
+		),
+	)
+	var buf bytes.Buffer
+	err := md.Renderer().Render(&buf, text, doc)
+	log.Println(buf.String())
+	if err == nil {
+		node.Preview = buf.String()
+	}
+}
+
+func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
+	//node.Lock()
+	//defer node.Unlock()
+	defer util.Timer("mdConvert")()
+	StyleName := "catppuccin-mocha"
+	md := newMarkdown(node.Path)
+	var doc ast.Node
+	if node.ParsedDocument != nil {
+		doc = *node.ParsedDocument
+	} else {
+		doc = ParsePost(md, text, node.Index)
+		node.ParsedDocument = &doc
+	}
 	renderedToc := renderTOC(&doc, text)
 
 	titleNode := doc.FirstChild()
@@ -121,15 +183,22 @@ func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *
 		}
 		titleNode = titleNode.NextSibling()
 	}
-	var title *HTMLElement
+	title := NewHTMLElement("h1", ID("title"))
 	if titleNode != nil {
 		h1Node := titleNode.(*ast.Heading)
-		title = NewHTMLElement("h1", ID("title"))
-		title.AppendText(string(h1Node.Text(text)))
+		txt := string(h1Node.Text(text))
+		title.AppendText(txt)
 		doc.RemoveChild(doc, titleNode)
+		if node.Title == "" {
+			(*node).Title = txt
+		}
+	} else {
+		title.AppendText(node.Title)
 	}
 
-	err = PostMD.Renderer().Render(&buf, text, doc)
+	var buf bytes.Buffer
+	var err error
+	err = md.Renderer().Render(&buf, text, doc)
 	if err != nil {
 		panic(err)
 	}

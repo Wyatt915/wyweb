@@ -47,3 +47,15 @@ func ConcatUnique[T comparable](sliceA []T, sliceB []T) []T {
 	}
 	return result
 }
+
+func TrimMagicSuffix(str string) string {
+	suffixes := []string{
+		".post.md",
+		".listing",
+	}
+	out := strings.Clone(str)
+	for _, x := range suffixes {
+		out = strings.TrimSuffix(out, x)
+	}
+	return out
+}

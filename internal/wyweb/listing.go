@@ -3,8 +3,10 @@ package wyweb
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"math"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -14,13 +16,13 @@ import (
 
 func MagicListing(parent *ConfigNode, name string) *ConfigNode {
 	out := &ConfigNode{
-		Path:     filepath.Join(parent.Path, name),
 		Parent:   parent,
 		NodeKind: WWLISTING,
 		Children: make(map[string]*ConfigNode),
 		TagDB:    make(map[string][]Listable),
 		Tree:     parent.Tree,
 	}
+	out.Path = filepath.Join(util.TrimMagicSuffix(parent.Path), name)
 	out.Title = strings.TrimSuffix(name, ".listing")
 	meta, e := ReadWyWeb(out.Path)
 	if e == nil {
@@ -39,10 +41,26 @@ func makeTagContainer(tags []string) *HTMLElement {
 	return tagcontainer
 }
 
-func postToListItem(post *WyWebPost) *HTMLElement {
+func postToListItem(post *ConfigNode) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(post.Path))
+	if post.Title == "" {
+		mdfile, err := os.ReadFile(post.Index)
+		if err != nil {
+			log.Println(err.Error())
+			return nil
+		}
+		GetTitleFromMarkdown(post, mdfile, nil)
+	}
 	link.AppendNew("h2").AppendText(post.Title)
+	if post.Preview == "" {
+		mdfile, err := os.ReadFile(post.Index)
+		if err != nil {
+			log.Println(err.Error())
+			return nil
+		}
+		GetPreviewFromMarkdown(post, mdfile, nil)
+	}
 	listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
 	listing.Append(makeTagContainer(post.Tags))
 	return listing
@@ -158,8 +176,8 @@ func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description
 	for _, item := range items {
 		switch t := item.(type) {
 		case *ConfigNode:
-			if (*t.Data).GetType() == WWPOST {
-				page.Append(postToListItem((*t.Data).(*WyWebPost)))
+			if t.NodeKind == WWPOST {
+				page.Append(postToListItem(t))
 			}
 		case *GalleryItem:
 			page.Append(galleryItemToListItem(*t))

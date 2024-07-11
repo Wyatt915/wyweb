@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yuin/goldmark/ast"
+
 	"wyweb.site/util"
 )
 
@@ -32,10 +34,13 @@ type ConfigNode struct {
 	LocalResources []string
 	Data           *WyWebMeta
 	Parent         *ConfigNode
-	Path           string
+	Index          string
 	TagDB          map[string][]Listable
 	Tags           []string
 	Tree           *ConfigTree
+	ParsedDocument *ast.Node
+	Preview        string
+	RealPath       string
 }
 
 type Listable interface {
@@ -171,13 +176,13 @@ func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*ConfigNode, error) {
 		return parent.Children[directory], nil
 	}
 	result := ConfigNode{
-		Path:     (*cfg).GetPath(),
 		Parent:   parent,
 		Data:     cfg,
 		Children: make(map[string]*ConfigNode),
 		TagDB:    make(map[string][]Listable),
 		Tree:     tree,
 	}
+	result.Path = (*cfg).GetPath()
 	parent.Children[directory] = &result
 	result.resolve()
 	return &result, nil
@@ -329,11 +334,12 @@ func (node *ConfigNode) resolve() error {
 	tree := node.Tree
 	switch t := (*meta).(type) {
 	case *WyWebPost:
-		println("INDEX: ", t.Index)
+		node.Index = t.Index
 		if t.Path == "" {
 			t.Path = node.Path
 		}
 		node.Tags = make([]string, len(t.Tags))
+		node.Preview = t.Preview
 		copy(node.Tags, t.Tags)
 		for _, tag := range t.Tags {
 			regiserTag(tag, node, &node.Tree.TagDB)
@@ -412,20 +418,23 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 		}
 		var meta WyWebMeta
 		var e error
-		var path string
+		var path, key string
 		var child *ConfigNode
 		if !file.IsDir() {
 			if strings.HasSuffix(file.Name(), ".post.md") {
 				child = MagicPost(node, file.Name())
-				path = child.Path
+				key = strings.TrimSuffix(file.Name(), ".post.md")
+				path = filepath.Join(dir, file.Name())
 			} else {
 				continue
 			}
 		} else if strings.HasSuffix(file.Name(), ".listing") || strings.ToLower(file.Name()) == "blog" {
+			key = filepath.Join(dir, strings.TrimSuffix(file.Name(), ".listing"))
 			path = filepath.Join(dir, file.Name())
 			child = MagicListing(node, file.Name())
 		} else {
 			path = filepath.Join(dir, file.Name())
+			key = path
 			wwFileName := filepath.Join(dir, file.Name(), "wyweb")
 			_, e = os.Stat(wwFileName)
 			if e != nil {
@@ -437,15 +446,15 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 				continue
 			}
 			child = &ConfigNode{
-				Path:     path,
 				Parent:   node,
 				Data:     &meta,
 				Children: make(map[string]*ConfigNode),
 				TagDB:    make(map[string][]Listable),
 				Tree:     tree,
 			}
+			child.Path = path
 		}
-		node.Children[filepath.Base(path)] = child
+		node.Children[filepath.Base(key)] = child
 		child.resolve()
 		child.growTree(path, tree)
 	}
@@ -456,7 +465,6 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	var err error
 	rootnode := ConfigNode{
-		Path:     "",
 		Parent:   nil,
 		Data:     nil,
 		Children: make(map[string]*ConfigNode),
