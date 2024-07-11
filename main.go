@@ -61,21 +61,21 @@ func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *h
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
 	var structuredData []string
-	meta := node.Data
 	if node.HTML == nil {
-		switch (*meta).(type) {
+		switch node.NodeKind {
 		//case *WyWebRoot:
-		case *WyWebListing:
+		case WWLISTING:
 			structuredData, err = BuildDirListing(node)
-		case *WyWebPost:
+		case WWPOST:
 			structuredData, err = BuildPost(node)
-		case *WyWebGallery:
+		case WWGALLERY:
 			structuredData, err = BuildGallery(node)
 		default:
 			w.WriteHeader(500)
 			return
 		}
 		node.HTML.Append(BuildFooter(node))
+		log.Println(structuredData)
 	}
 	if err != nil {
 		w.WriteHeader(404)

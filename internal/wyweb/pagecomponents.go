@@ -52,7 +52,7 @@ func BuildDocument(bodyHTML *HTMLElement, headData HTMLHeadData, structuredData 
 	document := NewHTMLElement("html")
 	head := BuildHead(headData)
 	for _, data := range structuredData {
-		head.AppendNew("script", map[string]string{"type": "application+ld+json"}).AppendText(data)
+		head.AppendNew("script", map[string]string{"type": "application/ld+json"}).AppendText(data)
 	}
 	document.Append(head)
 	document.Append(bodyHTML)

@@ -12,6 +12,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type WWNodeKind int
+
+const (
+	WWNULL WWNodeKind = iota
+	WWROOT
+	WWPOST
+	WWGALLERY
+	WWLISTING
+	WWPODCAST
+	WWRECIPE
+)
+
+var KindNames = map[WWNodeKind]string{
+	WWROOT:    "root",
+	WWPOST:    "post",
+	WWGALLERY: "gallery",
+	WWLISTING: "listing",
+	WWPODCAST: "podcast",
+	WWRECIPE:  "recipe",
+}
+
 type WWNavLink struct {
 	Path string `yaml:"path,omitempty"`
 	Text string `yaml:"text,omitempty"`
@@ -47,7 +68,7 @@ type HeadData struct {
 }
 
 type WyWebMeta interface {
-	GetType() string
+	GetType() WWNodeKind
 	GetPath() string
 	GetHeadData() *HeadData
 	GetPageData() *PageData
@@ -146,8 +167,8 @@ func (m WyWebRoot) GetPath() string {
 	return m.Path
 }
 
-func (m WyWebRoot) GetType() string {
-	return "root"
+func (m WyWebRoot) GetType() WWNodeKind {
+	return WWROOT
 }
 
 func (m WyWebRoot) GetHeadData() *HeadData {
@@ -167,8 +188,8 @@ func (m WyWebListing) GetPath() string {
 	return m.Path
 }
 
-func (m WyWebListing) GetType() string {
-	return "listing"
+func (m WyWebListing) GetType() WWNodeKind {
+	return WWLISTING
 }
 
 func (m WyWebListing) GetHeadData() *HeadData {
@@ -188,8 +209,8 @@ func (m WyWebPost) GetPath() string {
 	return m.Path
 }
 
-func (m WyWebPost) GetType() string {
-	return "post"
+func (m WyWebPost) GetType() WWNodeKind {
+	return WWPOST
 }
 
 func (m WyWebPost) GetHeadData() *HeadData {
@@ -209,8 +230,8 @@ func (m WyWebGallery) GetPath() string {
 	return m.Path
 }
 
-func (m WyWebGallery) GetType() string {
-	return "gallery"
+func (m WyWebGallery) GetType() WWNodeKind {
+	return WWGALLERY
 }
 
 func (m WyWebGallery) GetHeadData() *HeadData {
@@ -235,11 +256,16 @@ func (m WyWebGallery) GetPageData() *PageData {
 //}
 
 type Document struct {
-	Data WyWebMeta
+	Data     WyWebMeta
+	forceTag string
 }
 
 func (d *Document) UnmarshalYAML(node *yaml.Node) error {
-	switch strings.ToLower(node.Tag) {
+	var tag string = strings.ToLower(node.Tag)
+	if d.forceTag != "" {
+		tag = d.forceTag
+	}
+	switch tag {
 	case "!root":
 		var root WyWebRoot
 		if err := node.Decode(&root); err != nil {
@@ -273,20 +299,25 @@ func (d *Document) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func ReadWyWeb(dir string) (WyWebMeta, error) {
+func ReadWyWeb(dir string, forceTag ...string) (WyWebMeta, error) {
 	stat, err := os.Stat(dir)
 	if err != nil {
 		return nil, err
 	}
-	if !stat.IsDir() {
-		return nil, fmt.Errorf("not a directory: %s", dir)
+	var filename string
+	if stat.IsDir() {
+		filename = filepath.Join(dir, "wyweb")
+	} else {
+		filename = dir
 	}
-	filename := filepath.Join(dir, "wyweb")
 	wywebData, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
 	var meta Document
+	if len(forceTag) > 0 {
+		meta.forceTag = forceTag[0]
+	}
 	err = yaml.Unmarshal(wywebData, &meta)
 	if err != nil {
 		log.Println(string(wywebData))

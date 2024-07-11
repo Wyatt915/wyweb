@@ -7,9 +7,27 @@ import (
 	"net/url"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"wyweb.site/util"
 )
+
+func MagicListing(parent *ConfigNode, name string) *ConfigNode {
+	out := &ConfigNode{
+		Path:     filepath.Join(parent.Path, name),
+		Parent:   parent,
+		NodeKind: WWLISTING,
+		Children: make(map[string]*ConfigNode),
+		TagDB:    make(map[string][]Listable),
+		Tree:     parent.Tree,
+	}
+	out.Title = strings.TrimSuffix(name, ".listing")
+	meta, e := ReadWyWeb(out.Path)
+	if e == nil {
+		out.Data = &meta
+	}
+	return out
+}
 
 func makeTagContainer(tags []string) *HTMLElement {
 	tagcontainer := NewHTMLElement("div", Class("tag-container"))
@@ -117,6 +135,7 @@ func BuildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 }
 
 func BuildDirListing(node *ConfigNode) ([]string, error) {
+	node.printTree(0)
 	children := make([]Listable, 0)
 	for _, child := range node.Children {
 		children = append(children, child)
@@ -139,7 +158,7 @@ func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description
 	for _, item := range items {
 		switch t := item.(type) {
 		case *ConfigNode:
-			if (*t.Data).GetType() == "post" {
+			if (*t.Data).GetType() == WWPOST {
 				page.Append(postToListItem((*t.Data).(*WyWebPost)))
 			}
 		case *GalleryItem:

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
@@ -25,6 +26,23 @@ import (
 	wwExt "wyweb.site/extensions"
 	"wyweb.site/util"
 )
+
+func MagicPost(parent *ConfigNode, name string) *ConfigNode {
+	out := &ConfigNode{
+		Path:     filepath.Join(parent.Path, strings.TrimSuffix(name, ".post.md")),
+		Parent:   parent,
+		NodeKind: WWPOST,
+		Children: make(map[string]*ConfigNode),
+		TagDB:    make(map[string][]Listable),
+		Tree:     parent.Tree,
+	}
+	meta, err := ReadWyWeb(filepath.Join(parent.Path, name), "!post")
+	meta.(*WyWebPost).Index = filepath.Join(parent.Path, name)
+	if err == nil {
+		out.Data = &meta
+	}
+	return out
+}
 
 func tocRecurse(table *toc.Item, parent *HTMLElement) {
 	for _, item := range table.Items {
@@ -223,7 +241,12 @@ func BuildPost(node *ConfigNode) ([]string, error) {
 	var mdtext []byte
 	var err error
 	if meta.Index != "" {
+		log.Println("INDEX REQUEST: ", meta.Index)
 		mdtext, err = os.ReadFile(filepath.Join(meta.Path, meta.Index))
+		if err != nil {
+			mdtext, err = os.ReadFile(meta.Index)
+		}
+
 	} else {
 		mdtext, err = findIndex(meta.Path)
 	}

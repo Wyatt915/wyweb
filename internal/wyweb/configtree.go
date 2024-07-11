@@ -6,7 +6,6 @@ import (
 	"math/bits"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -27,6 +26,7 @@ type ConfigNode struct {
 	// Resolved.Titile.
 	id             uint64
 	resolved       bool
+	NodeKind       WWNodeKind
 	HTML           *HTMLElement
 	Children       map[string]*ConfigNode
 	LocalResources []string
@@ -300,6 +300,9 @@ func (node *ConfigNode) resolve() error {
 	if meta == nil {
 		return nil
 	}
+	if node.NodeKind == WWNULL {
+		node.NodeKind = (*meta).GetType()
+	}
 	switch (*meta).(type) {
 	case *WyWebRoot:
 		temp := (*meta).(*WyWebRoot)
@@ -318,13 +321,15 @@ func (node *ConfigNode) resolve() error {
 		node.Meta = node.Parent.Meta
 		node.resolveIncludes()
 	default:
-		log.Printf("Meta: %s\n", string(reflect.TypeOf(meta).Name()))
+		log.Printf("Meta: %+v\n", *meta)
+		log.Printf("%+v", *node)
 	}
 	node.SetID()
 	//register tags
 	tree := node.Tree
 	switch t := (*meta).(type) {
 	case *WyWebPost:
+		println("INDEX: ", t.Index)
 		if t.Path == "" {
 			t.Path = node.Path
 		}
@@ -402,20 +407,25 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 	}
 	ignore := []string{".git"}
 	for _, file := range files {
+		if slices.Contains(ignore, file.Name()) {
+			continue
+		}
 		var meta WyWebMeta
 		var e error
 		var path string
+		var child *ConfigNode
 		if !file.IsDir() {
 			if strings.HasSuffix(file.Name(), ".post.md") {
-				log.Println(file.Name())
+				child = MagicPost(node, file.Name())
+				path = child.Path
 			} else {
 				continue
 			}
+		} else if strings.HasSuffix(file.Name(), ".listing") || strings.ToLower(file.Name()) == "blog" {
+			path = filepath.Join(dir, file.Name())
+			child = MagicListing(node, file.Name())
 		} else {
-			if slices.Contains(ignore, file.Name()) {
-				continue
-			}
-			path := filepath.Join(dir, file.Name())
+			path = filepath.Join(dir, file.Name())
 			wwFileName := filepath.Join(dir, file.Name(), "wyweb")
 			_, e = os.Stat(wwFileName)
 			if e != nil {
@@ -426,18 +436,18 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 				log.Printf("couldn't read %s", path)
 				continue
 			}
+			child = &ConfigNode{
+				Path:     path,
+				Parent:   node,
+				Data:     &meta,
+				Children: make(map[string]*ConfigNode),
+				TagDB:    make(map[string][]Listable),
+				Tree:     tree,
+			}
 		}
-		child := ConfigNode{
-			Path:     path,
-			Parent:   node,
-			Data:     &meta,
-			Children: make(map[string]*ConfigNode),
-			TagDB:    make(map[string][]Listable),
-			Tree:     tree,
-		}
-		node.Children[filepath.Base(path)] = &child
-		(&child).resolve()
-		(&child).growTree(path, tree)
+		node.Children[filepath.Base(path)] = child
+		child.resolve()
+		child.growTree(path, tree)
 	}
 	setNavLinksOfChildren(node)
 	return status
@@ -466,7 +476,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 		log.Printf("Document root: %s\n", documentRoot)
 		return nil, err
 	}
-	if (meta).GetType() != "root" {
+	if (meta).GetType() != WWROOT {
 		return nil, fmt.Errorf("the wyweb file located at %s must be of type root", documentRoot)
 	}
 	for k, v := range (meta).(*WyWebRoot).Resources {
@@ -481,6 +491,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	//	}
 	//}
 	out.MakeSitemap()
+	out.Root.printTree(1)
 	return &out, nil
 }
 
@@ -547,7 +558,7 @@ func (node *ConfigNode) printTree(level int) {
 	for range level {
 		print("    ")
 	}
-	println(node.Title)
+	fmt.Printf("%s\t(%s - %s)\n", node.Title, KindNames[node.NodeKind], node.Path)
 	for _, child := range node.Children {
 		child.printTree(level + 1)
 	}
