@@ -1,4 +1,4 @@
-package main
+package wyweb
 
 import (
 	"fmt"
@@ -13,10 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"wyweb.site/wyweb/util"
+	"wyweb.site/util"
 )
 
 type ConfigNode struct {
+	sync.RWMutex
 	PageData
 	HeadData
 	// An id is constructed from the Date, Updated, and Resolved.Title fields.
@@ -45,15 +46,40 @@ type Listable interface {
 }
 
 func (n *ConfigNode) GetDate() time.Time {
+	n.RLock()
+	defer n.RUnlock()
 	return n.Date
 }
 func (n *ConfigNode) GetID() uint64 {
+	n.RLock()
+	defer n.RUnlock()
+	if n.id == 0 {
+		n.RUnlock()
+		n.SetID()
+		n.RLock()
+	}
 	return n.id
 }
 func (n *ConfigNode) GetTitle() string {
+	n.RLock()
+	defer n.RUnlock()
 	return n.Title
 }
+
+func (n *ConfigNode) GetHeadData() HeadData {
+	n.RLock()
+	defer n.RUnlock()
+	return n.HeadData
+}
+func (n *ConfigNode) GetPageData() PageData {
+	n.RLock()
+	defer n.RUnlock()
+	return n.PageData
+}
+
 func (n *ConfigNode) SetID() {
+	n.Lock()
+	defer n.Unlock()
 	epoch := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 	age := uint64((n.Date.Sub(epoch)).Hours()/24) & 0xFFFF // 16 bits will last until June 2179
 	var sinceUpdate uint64
@@ -81,8 +107,8 @@ func (n *ConfigNode) SetID() {
 	//fmt.Printf("%064b\n\n", n.id)
 }
 
-func newConfigNode() ConfigNode {
-	var out ConfigNode
+func newConfigNode() *ConfigNode {
+	var out *ConfigNode
 	out.Children = make(map[string]*ConfigNode)
 	out.TagDB = make(map[string][]Listable)
 	return out
@@ -95,13 +121,26 @@ type ConfigTree struct {
 	Resources    map[string]Resource
 	DocumentRoot string
 	Domain       string
-	mu           sync.Mutex
+	sync.RWMutex
+}
+
+func (tree *ConfigTree) GetResource(name string) (Resource, bool) {
+	tree.RLock()
+	defer tree.RUnlock()
+	res, ok := tree.Resources[name]
+	return res, ok
+}
+
+func (tree *ConfigTree) SetResource(name string, res Resource) {
+	tree.Lock()
+	defer tree.Unlock()
+	tree.Resources[name] = res
 }
 
 // Create a new configNode from cfg and add it to the tree
 func (tree *ConfigTree) RegisterConfig(cfg *WyWebMeta) (*ConfigNode, error) {
-	tree.mu.Lock()
-	defer tree.mu.Unlock()
+	tree.Lock()
+	defer tree.Unlock()
 	rootPath := util.PathToList(tree.Root.Path)
 	thisPath := util.PathToList((*cfg).GetPath())
 	_, err := util.NearestCommonAncestor(rootPath, thisPath)
@@ -252,6 +291,8 @@ func (node *ConfigNode) inheritIfUndefined() {
 }
 
 func (node *ConfigNode) resolve() error {
+	//node.Lock()
+	//defer node.Unlock()
 	if node.resolved {
 		return nil
 	}
@@ -319,6 +360,8 @@ func setNavLink(nl *WWNavLink, path, title string) {
 
 // If NavLinks are not explicitly defined, set them by ordering items by creation date
 func setNavLinksOfChildren(node *ConfigNode) {
+	//node.Lock()
+	//defer node.Unlock()
 	siblings := make([]*ConfigNode, len(node.Children))
 	i := 0
 	for _, child := range node.Children {
@@ -348,6 +391,8 @@ func setNavLinksOfChildren(node *ConfigNode) {
 }
 
 func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
+	//node.Lock()
+	//defer node.Unlock()
 	var status error
 	node.Tree = tree
 	//filepath.Walk(dir, func(path string, info fs.FileInfo, err error) error
@@ -357,22 +402,30 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 	}
 	ignore := []string{".git"}
 	for _, file := range files {
+		var meta WyWebMeta
+		var e error
+		var path string
 		if !file.IsDir() {
-			continue
-		}
-		if slices.Contains(ignore, file.Name()) {
-			continue
-		}
-		path := filepath.Join(dir, file.Name())
-		wwFileName := filepath.Join(dir, file.Name(), "wyweb")
-		_, e := os.Stat(wwFileName)
-		if e != nil {
-			continue
-		}
-		meta, e := ReadWyWeb(path)
-		if e != nil {
-			log.Printf("couldn't read %s", path)
-			continue
+			if strings.HasSuffix(file.Name(), ".post.md") {
+				log.Println(file.Name())
+			} else {
+				continue
+			}
+		} else {
+			if slices.Contains(ignore, file.Name()) {
+				continue
+			}
+			path := filepath.Join(dir, file.Name())
+			wwFileName := filepath.Join(dir, file.Name(), "wyweb")
+			_, e = os.Stat(wwFileName)
+			if e != nil {
+				continue
+			}
+			meta, e = ReadWyWeb(path)
+			if e != nil {
+				log.Printf("couldn't read %s", path)
+				continue
+			}
 		}
 		child := ConfigNode{
 			Path:     path,
@@ -432,6 +485,8 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 }
 
 func (node *ConfigNode) search(path []string, idx int) (*ConfigNode, error) {
+	//node.RLock()
+	//defer node.RUnlock()
 	// we have SUCCESSFULLY reached the end of the path
 	if len(path) == idx {
 		return node, nil
@@ -444,20 +499,22 @@ func (node *ConfigNode) search(path []string, idx int) (*ConfigNode, error) {
 }
 
 func (tree *ConfigTree) Search(path string) (*ConfigNode, error) {
-	tree.mu.Lock()
-	defer tree.mu.Unlock()
+	tree.RLock()
+	defer tree.RUnlock()
 	node := tree.Root
 	pathList := util.PathToList(path)
 	return node.search(pathList, 0)
 }
 
 func (tree *ConfigTree) GetItemsByTag(tag string) []Listable {
-	tree.mu.Lock()
-	defer tree.mu.Unlock()
+	tree.RLock()
+	defer tree.RUnlock()
 	return tree.TagDB[tag]
 }
 
 func (node *ConfigNode) GetItemsByTag(tag string) []Listable {
+	//node.RLock()
+	//defer node.RUnlock()
 	return node.TagDB[tag]
 }
 
@@ -479,9 +536,9 @@ type HTMLHeadData struct {
 }
 
 func (tree *ConfigTree) GetDefaultHead() *HTMLHeadData {
-	tree.mu.Lock()
-	defer tree.mu.Unlock()
-	out := tree.Root.GetHeadData()
+	tree.RLock()
+	defer tree.RUnlock()
+	out := tree.Root.GetHTMLHeadData()
 	(*out).Title = ""
 	return out
 }
@@ -496,7 +553,9 @@ func (node *ConfigNode) printTree(level int) {
 	}
 }
 
-func (node *ConfigNode) GetHeadData() *HTMLHeadData {
+func (node *ConfigNode) GetHTMLHeadData() *HTMLHeadData {
+	//node.RLock()
+	//defer node.RUnlock()
 	styles := make([]interface{}, 0)
 	scripts := make([]interface{}, 0)
 	for _, name := range node.LocalResources {

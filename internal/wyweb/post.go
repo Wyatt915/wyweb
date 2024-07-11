@@ -1,4 +1,4 @@
-package main
+package wyweb
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	meta "github.com/yuin/goldmark-meta"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
@@ -21,7 +22,8 @@ import (
 	gmText "github.com/yuin/goldmark/text"
 	"go.abhg.dev/goldmark/toc"
 
-	wwExt "wyweb.site/wyweb/extensions"
+	wwExt "wyweb.site/extensions"
+	"wyweb.site/util"
 )
 
 func tocRecurse(table *toc.Item, parent *HTMLElement) {
@@ -35,13 +37,19 @@ func tocRecurse(table *toc.Item, parent *HTMLElement) {
 	}
 }
 
-func renderTOC(t *toc.TOC) *HTMLElement {
-	if len(t.Items) == 0 {
+func renderTOC(doc *ast.Node, text []byte) *HTMLElement {
+	tree, err := toc.Inspect(*doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
+	if err != nil {
+		log.Printf("Error generating table of contents\n")
+		log.Printf("%+v\n", err)
+		return nil
+	}
+	if len(tree.Items) == 0 {
 		return nil
 	}
 	elem := NewHTMLElement("nav", Class("nav-toc"))
 	ul := elem.AppendNew("div", Class("toc")).AppendNew("ul")
-	for _, item := range t.Items {
+	for _, item := range tree.Items {
 		tocRecurse(item, ul)
 	}
 	if len(ul.Children) == 0 {
@@ -49,15 +57,19 @@ func renderTOC(t *toc.TOC) *HTMLElement {
 	}
 	return elem
 }
-func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
-	defer timer("mdConvert")()
+
+func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
+	//node.Lock()
+	//defer node.Unlock()
+	defer util.Timer("mdConvert")()
 	StyleName := "catppuccin-mocha"
-	md := goldmark.New(
+	PostMD := goldmark.New(
 		goldmark.WithExtensions(
 			wwExt.EmbedMedia(),
 			wwExt.AttributeList(),
 			wwExt.LinkRewrite(node.Path),
 			wwExt.AlertExtension(),
+			meta.Meta,
 			extension.GFM,
 			extension.Footnote,
 			extension.Typographer,
@@ -79,16 +91,10 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 	var buf bytes.Buffer
 	var err error
 	reader := gmText.NewReader(text)
-	doc := md.Parser().Parse(reader)
+
+	doc := PostMD.Parser().Parse(reader)
 	//doc.Dump(reader.Source(), 0)
-	tree, err := toc.Inspect(doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
-	var renderedToc *HTMLElement
-	if err != nil {
-		log.Printf("Error generating table of contents\n")
-		log.Printf("%+v\n", err)
-	} else {
-		renderedToc = renderTOC(tree)
-	}
+	renderedToc := renderTOC(&doc, text)
 
 	titleNode := doc.FirstChild()
 	for titleNode != nil {
@@ -105,7 +111,7 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 		doc.RemoveChild(doc, titleNode)
 	}
 
-	err = md.Renderer().Render(&buf, text, doc)
+	err = PostMD.Renderer().Render(&buf, text, doc)
 	if err != nil {
 		panic(err)
 	}
@@ -143,6 +149,8 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 	return buf, renderedToc, title, err
 }
 func buildArticleHeader(node *ConfigNode, title, crumbs, article *HTMLElement) {
+	//node.RLock()
+	//defer node.RUnlock()
 	header := article.AppendNew("header")
 	header.Append(crumbs)
 	header.Append(title)
@@ -196,7 +204,9 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func buildPost(node *ConfigNode) ([]string, error) {
+func BuildPost(node *ConfigNode) ([]string, error) {
+	//node.RLock()
+	//defer node.RUnlock()
 	structuredData := map[string]interface{}{
 		"@context": "https://schema.org",
 		"@type":    "BlogPosting",
@@ -220,11 +230,11 @@ func buildPost(node *ConfigNode) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	temp, TOC, title, _ := mdConvert(mdtext, *node)
+	temp, TOC, title, _ := MDConvertPost(mdtext, node)
 	body := NewHTMLElement("body")
 	body.Append(TOC)
 	article := body.AppendNew("article")
-	crumbs, bcSD := breadcrumbs(node)
+	crumbs, bcSD := Breadcrumbs(node)
 	buildArticleHeader(node, title, crumbs, article)
 	article.AppendText(temp.String()).NoIndent()
 	tagcontainer := article.AppendNew("div", Class("tag-container"))

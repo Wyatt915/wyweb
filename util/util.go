@@ -2,10 +2,19 @@ package util
 
 import (
 	"errors"
+	"log"
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
+
+func Timer(name string) func() {
+	start := time.Now()
+	return func() {
+		log.Printf("%s [%v]\n", name, time.Since(start))
+	}
+}
 
 func PathToList(path string) []string {
 	return strings.Split(string(path), string(os.PathSeparator))

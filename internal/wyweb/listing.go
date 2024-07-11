@@ -1,4 +1,4 @@
-package main
+package wyweb
 
 import (
 	"bytes"
@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"wyweb.site/wyweb/util"
+	"wyweb.site/util"
 )
 
 func makeTagContainer(tags []string) *HTMLElement {
@@ -59,11 +59,11 @@ func buildTagCloud(node *ConfigNode, cloud *HTMLElement, crumbs *HTMLElement) *H
 	page := body.AppendNew("article")
 	//header.AppendNew("div", Class("description")).AppendText(description)
 	page.Append(cloud)
-	body.Append(buildFooter(node))
+	body.Append(BuildFooter(node))
 	return body
 }
 
-func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *HTMLElement {
+func BuildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *HTMLElement {
 	if len(taglist) == 0 || (len(taglist) == 1 && taglist[0] == "") {
 		cloud := NewHTMLElement("body")
 		div := cloud.AppendNew("div", Class("tag-cloud"))
@@ -111,12 +111,12 @@ func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 		return listingData[i].GetDate().After(listingData[j].GetDate())
 	})
 	if crumbs == nil {
-		crumbs, _ = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
+		crumbs, _ = Breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
 	}
-	return buildListing(listingData, crumbs, "Tags", msg.String())
+	return BuildListing(listingData, crumbs, "Tags", msg.String())
 }
 
-func buildDirListing(node *ConfigNode) ([]string, error) {
+func BuildDirListing(node *ConfigNode) ([]string, error) {
 	children := make([]Listable, 0)
 	for _, child := range node.Children {
 		children = append(children, child)
@@ -124,12 +124,12 @@ func buildDirListing(node *ConfigNode) ([]string, error) {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].GetDate().After(children[j].GetDate())
 	})
-	crumbs, bcSD := breadcrumbs(node)
-	node.HTML = buildListing(children, crumbs, node.Title, node.Description)
+	crumbs, bcSD := Breadcrumbs(node)
+	node.HTML = BuildListing(children, crumbs, node.Title, node.Description)
 	return []string{bcSD}, nil
 }
 
-func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
+func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	body := NewHTMLElement("body")
 	header := body.AppendNew("header", Class("listing-header"))
 	page := body.AppendNew("article")

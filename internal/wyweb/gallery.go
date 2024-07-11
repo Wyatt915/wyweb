@@ -1,4 +1,4 @@
-package main
+package wyweb
 
 import (
 	"fmt"
@@ -19,6 +19,8 @@ import (
 
 	_ "golang.org/x/image/tiff"
 	_ "golang.org/x/image/webp"
+
+	"wyweb.site/util"
 )
 
 // Given a path and a list of file extensions ext, return all image filenames in the path.
@@ -152,7 +154,7 @@ func removeExt(name string) string {
 }
 
 func createThumbnails(path string, images []string) error {
-	defer timer("createThumbnails")()
+	defer util.Timer("createThumbnails")()
 	thumbdir := filepath.Join(path, "thumbs")
 	stat, err := os.Stat(path)
 	if err != nil {
@@ -408,7 +410,7 @@ func partition(parts [][]imgPair, limit int) [][]imgPair {
 }
 
 func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair {
-	defer timer("arrangeImages")()
+	defer util.Timer("arrangeImages")()
 	out := make([][]imgPair, columns)
 	for i := 0; i < columns; i++ {
 		out[i] = make([]imgPair, 0)
@@ -433,13 +435,13 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	return out
 }
 
-func buildGallery(node *ConfigNode) ([]string, error) {
+func BuildGallery(node *ConfigNode) ([]string, error) {
 	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
 	main := NewHTMLElement("body", Class("gallery-page"))
 	header := main.AppendNew("header")
-	bcHTML, bcSD := breadcrumbs(node)
+	bcHTML, bcSD := Breadcrumbs(node)
 	header.Append(bcHTML)
 	header.AppendNew("h1").AppendText(node.Title)
 	header.AppendNew("div", Class("description")).AppendText(node.Description)
