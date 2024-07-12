@@ -155,7 +155,6 @@ func GetPreviewFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
 	)
 	var buf bytes.Buffer
 	err := md.Renderer().Render(&buf, text, doc)
-	log.Println(buf.String())
 	if err == nil {
 		node.Preview = buf.String()
 	}

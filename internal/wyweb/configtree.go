@@ -335,6 +335,16 @@ func (node *ConfigNode) resolve() error {
 	switch t := (*meta).(type) {
 	case *WyWebPost:
 		node.Index = t.Index
+		_, err := os.Stat(node.Index)
+		if err != nil {
+			_, err = os.Stat(filepath.Join(node.Path, node.Index))
+			if err == nil {
+				node.Index = filepath.Join(node.Path, node.Index)
+			} else {
+				log.Printf("WARN: Could not find index for %s specified at %s", node.Path, node.Index)
+				node.Index = ""
+			}
+		}
 		if t.Path == "" {
 			t.Path = node.Path
 		}
