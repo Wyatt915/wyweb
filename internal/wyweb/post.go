@@ -36,10 +36,12 @@ func MagicPost(parent *ConfigNode, name string) *ConfigNode {
 		Children: make(map[string]*ConfigNode),
 		TagDB:    make(map[string][]Listable),
 		Tree:     parent.Tree,
+		Index:    filepath.Join(parent.RealPath, name),
+		RealPath: filepath.Join(parent.RealPath, name),
 	}
-	meta, err := ReadWyWeb(filepath.Join(parent.Path, name), "!post")
+	out.Path = filepath.Join(util.TrimMagicSuffix(parent.Path), strings.TrimSuffix(name, ".post.md"))
+	meta, err := ReadWyWeb(filepath.Join(parent.RealPath, name), "!post")
 	if err == nil {
-		meta.(*WyWebPost).Index = filepath.Join(parent.Path, name)
 		meta.(*WyWebPost).Path = filepath.Join(util.TrimMagicSuffix(parent.Path), strings.TrimSuffix(name, ".post.md"))
 		out.Data = &meta
 	}
@@ -114,6 +116,9 @@ func ParsePost(md goldmark.Markdown, text []byte, path string) ast.Node {
 }
 
 func GetTitleFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
+	if text == nil {
+		text, _ = os.ReadFile(node.Index)
+	}
 	if doc == nil {
 		if node.ParsedDocument != nil {
 			doc = *node.ParsedDocument
@@ -132,9 +137,7 @@ func GetTitleFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
 	if titleNode != nil {
 		h1Node := titleNode.(*ast.Heading)
 		txt := string(h1Node.Text(text))
-		if node.Title == "" {
-			(*node).Title = txt
-		}
+		(*node).Title = txt
 	}
 }
 
@@ -290,7 +293,7 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func BuildPost(node *ConfigNode) ([]string, error) {
+func BuildPost(node *ConfigNode) error {
 	//node.RLock()
 	//defer node.RUnlock()
 	structuredData := map[string]interface{}{
@@ -304,22 +307,15 @@ func BuildPost(node *ConfigNode) ([]string, error) {
 		"datePublished": node.Date.Format(time.DateOnly),
 		"dateUpdated":   node.Updated.Format(time.DateOnly),
 	}
-	meta := (*node.Data).(*WyWebPost)
 	resolved := node
 	var mdtext []byte
 	var err error
-	if meta.Index != "" {
-		log.Println("INDEX REQUEST: ", meta.Index)
-		mdtext, err = os.ReadFile(filepath.Join(meta.Path, meta.Index))
-		if err != nil {
-			mdtext, err = os.ReadFile(meta.Index)
-		}
-
-	} else {
-		mdtext, err = findIndex(meta.Path)
+	if node.Index != "" {
+		mdtext, err = os.ReadFile(node.Index)
 	}
 	if err != nil {
-		return nil, err
+		log.Println(err.Error())
+		return err
 	}
 	temp, TOC, title, _ := MDConvertPost(mdtext, node)
 	body := NewHTMLElement("body")
@@ -336,5 +332,7 @@ func BuildPost(node *ConfigNode) ([]string, error) {
 	}
 	resolved.HTML = body
 	jsonld, _ := json.MarshalIndent(structuredData, "", "    ")
-	return []string{string(jsonld), bcSD}, nil
+	node.StructuredData = append(node.StructuredData, bcSD)
+	node.StructuredData = append(node.StructuredData, string(jsonld))
+	return nil
 }

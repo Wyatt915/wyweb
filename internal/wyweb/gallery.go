@@ -1,6 +1,7 @@
 package wyweb
 
 import (
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/color"
@@ -435,13 +436,14 @@ func arrangeImages(pairs []imgPair, columns int, page *HTMLElement) [][]imgPair 
 	return out
 }
 
-func BuildGallery(node *ConfigNode) ([]string, error) {
+func BuildGallery(node *ConfigNode) error {
 	fullsized := findImages(node.Path)
 	createThumbnails(node.Path, fullsized)
 	pairs := PairUp(node.Path, fullsized)
 	main := NewHTMLElement("body", Class("gallery-page"))
 	header := main.AppendNew("header")
 	bcHTML, bcSD := Breadcrumbs(node)
+	node.StructuredData = append(node.StructuredData, bcSD)
 	header.Append(bcHTML)
 	header.AppendNew("h1").AppendText(node.Title)
 	header.AppendNew("div", Class("description")).AppendText(node.Description)
@@ -463,6 +465,19 @@ func BuildGallery(node *ConfigNode) ([]string, error) {
 			imageNum++
 		}
 	}
+	structuredData := make([]interface{}, 0)
+	for _, img := range node.Images {
+		if slices.Contains(fullsized, img.Filename) {
+			structuredData = append(structuredData, img.StructuredData())
+		}
+	}
 	node.HTML = main
-	return []string{bcSD}, nil
+	imgSD, err := json.MarshalIndent(structuredData, "", "    ")
+	if err != nil {
+		log.Println(err.Error())
+	} else {
+		node.StructuredData = append(node.StructuredData, string(imgSD))
+	}
+
+	return nil
 }

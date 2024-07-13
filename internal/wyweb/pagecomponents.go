@@ -46,6 +46,10 @@ func BuildHead(headData HTMLHeadData) *HTMLElement {
 	return head
 }
 
+func (node *ConfigNode) BuildDocument() (bytes.Buffer, error) {
+	return BuildDocument(node.HTML, *node.GetHTMLHeadData(), node.StructuredData...)
+}
+
 func BuildDocument(bodyHTML *HTMLElement, headData HTMLHeadData, structuredData ...string) (bytes.Buffer, error) {
 	var buf bytes.Buffer
 	buf.WriteString("<!DOCTYPE html>\n")

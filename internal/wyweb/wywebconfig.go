@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/bits"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,10 @@ var KindNames = map[WWNodeKind]string{
 type WWNavLink struct {
 	Path string `yaml:"path,omitempty"`
 	Text string `yaml:"text,omitempty"`
+}
+
+func (r WWNavLink) IsZero() bool {
+	return r.Path == "" && r.Text == ""
 }
 
 type PageData struct {
@@ -106,7 +111,7 @@ type WyWebPost struct {
 	Tags     []string `yaml:"tags,omitempty"`
 }
 
-type GalleryItem struct {
+type RichImage struct {
 	id          uint64
 	Addenda     string    `yaml:"addenda,omitempty"`
 	Alt         string    `yaml:"alt,omitempty"`
@@ -118,22 +123,22 @@ type GalleryItem struct {
 	Medium      string    `yaml:"medium,omitempty"`
 	Title       string    `yaml:"title,omitempty"`
 	Tags        []string  `yaml:"tags,omitempty"`
-	GalleryPath string
+	ParentPage  *ConfigNode
 }
 
-func (n *GalleryItem) GetDate() time.Time {
+func (n *RichImage) GetDate() time.Time {
 	return n.Date
 }
 
-func (n *GalleryItem) GetID() uint64 {
+func (n *RichImage) GetID() uint64 {
 	return n.id
 }
 
-func (n *GalleryItem) GetTitle() string {
+func (n *RichImage) GetTitle() string {
 	return n.Title
 }
 
-func (n *GalleryItem) SetID() {
+func (n *RichImage) SetID() {
 	epoch := time.Date(2000, time.January, 1, 0, 0, 0, 0, time.UTC)
 	age := uint64((n.Date.Sub(epoch)).Hours()/24) & 0xFFFF // 16 bits will last until June 2179
 	n.id = (age << (64 - 16))
@@ -152,10 +157,27 @@ func (n *GalleryItem) SetID() {
 	//fmt.Printf("%064b\n\n", n.id)
 }
 
+func (r *RichImage) StructuredData() interface{} {
+	out := map[string]interface{}{
+		"@context": "https://schema.org/",
+		"@type":    "ImageObject",
+		"contentURL": url.URL{
+			Scheme: "https",
+			Host:   r.ParentPage.Tree.Domain,
+			Path:   filepath.Join(r.ParentPage.RealPath, r.Filename),
+		},
+		"creator": map[string]interface{}{
+			"@type": "Person",
+			"name":  r.Artist,
+		},
+	}
+	return out
+}
+
 type WyWebGallery struct {
 	HeadData     `yaml:",inline"`
 	PageData     `yaml:",inline"`
-	GalleryItems []GalleryItem `yaml:"galleryitems,omitempty"`
+	GalleryItems []RichImage `yaml:"galleryitems,omitempty"`
 }
 
 // //////////////////////////////////////////////////////////////////////////////

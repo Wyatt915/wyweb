@@ -41,6 +41,8 @@ type ConfigNode struct {
 	ParsedDocument *ast.Node
 	Preview        string
 	RealPath       string
+	Images         []RichImage
+	StructuredData []string
 }
 
 type Listable interface {
@@ -295,16 +297,44 @@ func (node *ConfigNode) inheritIfUndefined() {
 	}
 }
 
-func (node *ConfigNode) resolve() error {
-	//node.Lock()
-	//defer node.Unlock()
-	if node.resolved {
-		return nil
+// copy fields from src to dst only if the corresponding field of dst is zero/empty.
+func mergePageData(dst *PageData, src *PageData) {
+	if dst.Author == "" {
+		dst.Author = src.Author
 	}
-	meta := node.Data
-	if meta == nil {
-		return nil
+	if dst.Title == "" {
+		dst.Title = src.Title
 	}
+	if dst.Description == "" {
+		dst.Description = src.Description
+	}
+	if dst.Copyright == "" {
+		dst.Copyright = src.Copyright
+	}
+	if dst.Path == "" {
+		dst.Path = src.Path
+	}
+	if dst.ParentPath == "" {
+		dst.ParentPath = src.ParentPath
+	}
+	if dst.Date.IsZero() {
+		dst.Date = src.Date
+	}
+	if dst.Updated.IsZero() {
+		dst.Updated = src.Updated
+	}
+	if dst.Next.IsZero() {
+		dst.Next = src.Next
+	}
+	if dst.Prev.IsZero() {
+		dst.Prev = src.Prev
+	}
+	if dst.Up.IsZero() {
+		dst.Up = src.Up
+	}
+}
+
+func (node *ConfigNode) SetFieldsFromWyWebMeta(meta *WyWebMeta) error {
 	if node.NodeKind == WWNULL {
 		node.NodeKind = (*meta).GetType()
 	}
@@ -316,25 +346,28 @@ func (node *ConfigNode) resolve() error {
 		node.LocalResources = make([]string, len(temp.Default.Resources))
 		copy(node.LocalResources, temp.Default.Resources)
 		node.resolved = true
+		node.Path = ""
 		return nil
 	case *WyWebPost, *WyWebListing, *WyWebGallery:
 		if !node.Parent.resolved {
 			node.Parent.resolve()
 		}
 		copyHeadData(&node.HeadData, (*meta).GetHeadData())
-		node.PageData = *(*meta).GetPageData()
-		node.Meta = node.Parent.Meta
+		mergePageData(&node.PageData, (*meta).GetPageData())
+		if node.Meta == nil {
+			node.Meta = make([]string, 0)
+		}
+		node.Meta = append(node.Meta, node.Parent.Meta...)
 		node.resolveIncludes()
 	default:
 		log.Printf("Meta: %+v\n", *meta)
-		log.Printf("%+v", *node)
+		log.Printf("%+v", node.PageData)
 	}
-	node.SetID()
-	//register tags
-	tree := node.Tree
 	switch t := (*meta).(type) {
 	case *WyWebPost:
-		node.Index = t.Index
+		if node.Index == "" {
+			node.Index = t.Index
+		}
 		_, err := os.Stat(node.Index)
 		if err != nil {
 			_, err = os.Stat(filepath.Join(node.Path, node.Index))
@@ -342,30 +375,102 @@ func (node *ConfigNode) resolve() error {
 				node.Index = filepath.Join(node.Path, node.Index)
 			} else {
 				log.Printf("WARN: Could not find index for %s specified at %s", node.Path, node.Index)
-				node.Index = ""
+				return fmt.Errorf("could not find index for %s specified at %s", node.Path, node.Index)
 			}
 		}
-		if t.Path == "" {
-			t.Path = node.Path
-		}
-		node.Tags = make([]string, len(t.Tags))
-		node.Preview = t.Preview
-		copy(node.Tags, t.Tags)
-		for _, tag := range t.Tags {
-			regiserTag(tag, node, &node.Tree.TagDB)
-			if node.Parent.GetID() != tree.Root.GetID() {
-				regiserTag(tag, node, &node.Parent.TagDB)
+		if node.Tags == nil {
+			node.Tags = make([]string, len(t.Tags))
+			copy(node.Tags, t.Tags)
+		} else {
+			node.Tags = util.ConcatUnique(node.Tags, t.Tags)
+			if node.Preview == "" {
+				node.Preview = t.Preview
 			}
 		}
 	case *WyWebGallery:
-		for idx, item := range t.GalleryItems {
-			temp := t.GalleryItems[idx]
-			temp.GalleryPath = node.Path
+		node.Images = make([]RichImage, len(t.GalleryItems))
+		copy(node.Images, t.GalleryItems)
+		for idx := range node.Images {
+			node.Images[idx].ParentPage = node
+		}
+	}
+	return nil
+}
+
+func (node *ConfigNode) registerTags() {
+	tree := node.Tree
+	switch node.NodeKind {
+	case WWPOST:
+		for _, tag := range node.Tags {
+			regiserTag(tag, node, &node.Tree.TagDB)
+			if node.Parent != tree.Root {
+				regiserTag(tag, node, &node.Parent.TagDB)
+			}
+		}
+	case WWGALLERY:
+		for _, item := range node.Images {
 			for _, tag := range item.Tags {
-				regiserTag(tag, &temp, &node.Tree.TagDB)
+				regiserTag(tag, &item, &node.Tree.TagDB)
 			}
 		}
 	}
+}
+
+func (node *ConfigNode) setAbsoluteIndex() error {
+	_, err := os.Stat(node.Index)
+	if err == nil {
+		return nil
+	}
+	idx := filepath.Join(node.RealPath, node.Index)
+	_, err = os.Stat(idx)
+	if err == nil {
+		node.Index = idx
+		return nil
+	}
+	idx = filepath.Join(filepath.Dir(node.RealPath), node.Index)
+	_, err = os.Stat(idx)
+	if err == nil {
+		node.Index = idx
+		return nil
+	}
+	return fmt.Errorf("could not find absolute path for index of %s (%s)", node.Title, node.Path)
+}
+
+func (node *ConfigNode) Magic() {
+	if node.Title == "" {
+		switch node.NodeKind {
+		case WWPOST:
+			GetTitleFromMarkdown(node, nil, nil)
+		}
+	}
+}
+
+func (node *ConfigNode) resolve() error {
+	//node.Lock()
+	//defer node.Unlock()
+	if node.resolved {
+		return nil
+	}
+	if node.Data != nil {
+		err := node.SetFieldsFromWyWebMeta(node.Data)
+		if err != nil {
+			return err
+		}
+	}
+	err := node.setAbsoluteIndex()
+	if err != nil {
+		log.Println(err.Error())
+		return err
+	}
+	node.Magic()
+	if node.StructuredData == nil {
+		node.StructuredData = make([]string, 0)
+	}
+	if node.RealPath == "" {
+		node.RealPath = node.Path
+	}
+	node.SetID()
+	node.registerTags()
 	node.resolved = true
 	return nil
 }
@@ -438,34 +543,41 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 			} else {
 				continue
 			}
-		} else if strings.HasSuffix(file.Name(), ".listing") || strings.ToLower(file.Name()) == "blog" {
-			key = filepath.Join(dir, strings.TrimSuffix(file.Name(), ".listing"))
-			path = filepath.Join(dir, file.Name())
-			child = MagicListing(node, file.Name())
 		} else {
 			path = filepath.Join(dir, file.Name())
 			key = path
 			wwFileName := filepath.Join(dir, file.Name(), "wyweb")
 			_, e = os.Stat(wwFileName)
 			if e != nil {
-				continue
+				if strings.HasSuffix(file.Name(), ".listing") || strings.ToLower(file.Name()) == "blog" {
+					key = filepath.Join(dir, strings.TrimSuffix(file.Name(), ".listing"))
+					path = filepath.Join(dir, file.Name())
+					child = MagicListing(node, file.Name())
+				} else {
+					continue
+				}
+			} else {
+				meta, e = ReadWyWeb(path)
+				if e != nil {
+					log.Printf("couldn't read %s", path)
+					continue
+				}
+				child = &ConfigNode{
+					Parent:   node,
+					Data:     &meta,
+					Children: make(map[string]*ConfigNode),
+					TagDB:    make(map[string][]Listable),
+					Tree:     tree,
+				}
+				(*child).Path = path
 			}
-			meta, e = ReadWyWeb(path)
-			if e != nil {
-				log.Printf("couldn't read %s", path)
-				continue
-			}
-			child = &ConfigNode{
-				Parent:   node,
-				Data:     &meta,
-				Children: make(map[string]*ConfigNode),
-				TagDB:    make(map[string][]Listable),
-				Tree:     tree,
-			}
-			child.Path = path
+		}
+		err := child.resolve()
+		if err != nil {
+			log.Println(err.Error())
+			continue
 		}
 		node.Children[filepath.Base(key)] = child
-		child.resolve()
 		child.growTree(path, tree)
 	}
 	setNavLinksOfChildren(node)
@@ -509,7 +621,6 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	//	}
 	//}
 	out.MakeSitemap()
-	out.Root.printTree(1)
 	return &out, nil
 }
 

@@ -21,10 +21,11 @@ func MagicListing(parent *ConfigNode, name string) *ConfigNode {
 		Children: make(map[string]*ConfigNode),
 		TagDB:    make(map[string][]Listable),
 		Tree:     parent.Tree,
+		RealPath: filepath.Join(parent.RealPath, name),
 	}
-	out.Path = filepath.Join(util.TrimMagicSuffix(parent.Path), name)
+	out.Path = filepath.Join(util.TrimMagicSuffix(parent.Path), util.TrimMagicSuffix(name))
 	out.Title = strings.TrimSuffix(name, ".listing")
-	meta, e := ReadWyWeb(out.Path)
+	meta, e := ReadWyWeb(filepath.Join(parent.Path, name))
 	if e == nil {
 		out.Data = &meta
 	}
@@ -66,16 +67,16 @@ func postToListItem(post *ConfigNode) *HTMLElement {
 	return listing
 }
 
-func galleryItemToListItem(item GalleryItem) *HTMLElement {
+func galleryItemToListItem(item *RichImage) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(item.Filename))
 	link.AppendNew("h2").AppendText(item.Title)
 	gl := listing.AppendNew("div", Class("gallery-listing"))
-	gl.AppendNew("div", Class("img-container")).AppendNew("a", Href(item.GalleryPath)).AppendNew(
+	gl.AppendNew("div", Class("img-container")).AppendNew("a", Href(item.ParentPage.Path)).AppendNew(
 		"img",
 		Class("gallery-img"),
 		map[string]string{
-			"src": filepath.Join(item.GalleryPath, item.Filename),
+			"src": filepath.Join(item.ParentPage.Path, item.Filename),
 			"alt": item.Alt,
 		})
 	infoContainer := gl.AppendNew("div", Class("info-container"))
@@ -152,8 +153,7 @@ func BuildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 	return BuildListing(listingData, crumbs, "Tags", msg.String())
 }
 
-func BuildDirListing(node *ConfigNode) ([]string, error) {
-	node.printTree(0)
+func BuildDirListing(node *ConfigNode) error {
 	children := make([]Listable, 0)
 	for _, child := range node.Children {
 		children = append(children, child)
@@ -163,7 +163,8 @@ func BuildDirListing(node *ConfigNode) ([]string, error) {
 	})
 	crumbs, bcSD := Breadcrumbs(node)
 	node.HTML = BuildListing(children, crumbs, node.Title, node.Description)
-	return []string{bcSD}, nil
+	node.StructuredData = append(node.StructuredData, bcSD)
+	return nil
 }
 
 func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
@@ -179,8 +180,8 @@ func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description
 			if t.NodeKind == WWPOST {
 				page.Append(postToListItem(t))
 			}
-		case *GalleryItem:
-			page.Append(galleryItemToListItem(*t))
+		case *RichImage:
+			page.Append(galleryItemToListItem(t))
 		default:
 			continue
 		}

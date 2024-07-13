@@ -54,22 +54,22 @@ func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *h
 	page := BuildTagListing(node, taglist, crumbs)
 	headData := node.Tree.GetDefaultHead()
 	headData.Title = "Tags"
+	page.Append(BuildFooter(node))
 	buf, _ := BuildDocument(page, *headData, bcsd)
 	w.Write(buf.Bytes())
 }
 
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
-	var structuredData []string
 	if node.HTML == nil {
 		switch node.NodeKind {
 		//case *WyWebRoot:
 		case WWLISTING:
-			structuredData, err = BuildDirListing(node)
+			err = BuildDirListing(node)
 		case WWPOST:
-			structuredData, err = BuildPost(node)
+			err = BuildPost(node)
 		case WWGALLERY:
-			structuredData, err = BuildGallery(node)
+			err = BuildGallery(node)
 		default:
 			w.WriteHeader(500)
 			return
@@ -80,7 +80,7 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
 	}
-	buf, _ := BuildDocument(node.HTML, *node.GetHTMLHeadData(), structuredData...)
+	buf, _ := node.BuildDocument()
 	w.Write(buf.Bytes())
 }
 
