@@ -1,27 +1,51 @@
-package main
+package wyweb
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	meta "github.com/yuin/goldmark-meta"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
 	gmText "github.com/yuin/goldmark/text"
+	gmUtil "github.com/yuin/goldmark/util"
 	"go.abhg.dev/goldmark/toc"
 
-	wwExt "wyweb.site/wyweb/extensions"
+	wwExt "wyweb.site/extensions"
+	"wyweb.site/util"
 )
+
+func MagicPost(parent *ConfigNode, name string) *ConfigNode {
+	out := &ConfigNode{
+		Parent:   parent,
+		NodeKind: WWPOST,
+		Children: make(map[string]*ConfigNode),
+		TagDB:    make(map[string][]Listable),
+		Tree:     parent.Tree,
+	}
+	meta, err := ReadWyWeb(filepath.Join(parent.Path, name), "!post")
+	if err == nil {
+		meta.(*WyWebPost).Index = filepath.Join(parent.Path, name)
+		meta.(*WyWebPost).Path = filepath.Join(util.TrimMagicSuffix(parent.Path), strings.TrimSuffix(name, ".post.md"))
+		out.Data = &meta
+	}
+
+	return out
+}
 
 func tocRecurse(table *toc.Item, parent *HTMLElement) {
 	for _, item := range table.Items {
@@ -34,13 +58,19 @@ func tocRecurse(table *toc.Item, parent *HTMLElement) {
 	}
 }
 
-func renderTOC(t *toc.TOC) *HTMLElement {
-	if len(t.Items) == 0 {
+func renderTOC(doc *ast.Node, text []byte) *HTMLElement {
+	tree, err := toc.Inspect(*doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
+	if err != nil {
+		log.Printf("Error generating table of contents\n")
+		log.Printf("%+v\n", err)
+		return nil
+	}
+	if len(tree.Items) == 0 {
 		return nil
 	}
 	elem := NewHTMLElement("nav", Class("nav-toc"))
 	ul := elem.AppendNew("div", Class("toc")).AppendNew("ul")
-	for _, item := range t.Items {
+	for _, item := range tree.Items {
 		tocRecurse(item, ul)
 	}
 	if len(ul.Children) == 0 {
@@ -48,15 +78,15 @@ func renderTOC(t *toc.TOC) *HTMLElement {
 	}
 	return elem
 }
-func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
-	defer timer("mdConvert")()
-	StyleName := "catppuccin-mocha"
-	md := goldmark.New(
+
+func newMarkdown(path string) goldmark.Markdown {
+	return goldmark.New(
 		goldmark.WithExtensions(
 			wwExt.EmbedMedia(),
 			wwExt.AttributeList(),
-			wwExt.LinkRewrite(node.Path),
+			wwExt.LinkRewrite(path),
 			wwExt.AlertExtension(),
+			meta.Meta,
 			extension.GFM,
 			extension.Footnote,
 			extension.Typographer,
@@ -75,19 +105,75 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 			html.WithUnsafe(),
 		),
 	)
-	var buf bytes.Buffer
-	var err error
+}
+
+func ParsePost(md goldmark.Markdown, text []byte, path string) ast.Node {
 	reader := gmText.NewReader(text)
 	doc := md.Parser().Parse(reader)
-	//doc.Dump(reader.Source(), 0)
-	tree, err := toc.Inspect(doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
-	var renderedToc *HTMLElement
-	if err != nil {
-		log.Printf("Error generating table of contents\n")
-		log.Printf("%+v\n", err)
-	} else {
-		renderedToc = renderTOC(tree)
+	return doc
+}
+
+func GetTitleFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
+	if doc == nil {
+		if node.ParsedDocument != nil {
+			doc = *node.ParsedDocument
+		} else {
+			doc = ParsePost(newMarkdown(node.Path), text, node.Index)
+			node.ParsedDocument = &doc
+		}
 	}
+	titleNode := doc.FirstChild()
+	for titleNode != nil {
+		if titleNode.Kind() == ast.KindHeading && titleNode.(*ast.Heading).Level == 1 {
+			break
+		}
+		titleNode = titleNode.NextSibling()
+	}
+	if titleNode != nil {
+		h1Node := titleNode.(*ast.Heading)
+		txt := string(h1Node.Text(text))
+		if node.Title == "" {
+			(*node).Title = txt
+		}
+	}
+}
+
+func GetPreviewFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
+	md := newMarkdown(node.Path)
+	if doc == nil {
+		if node.ParsedDocument != nil {
+			doc = *node.ParsedDocument
+		} else {
+			doc = ParsePost(md, text, node.Index)
+			node.ParsedDocument = &doc
+		}
+	}
+	md.Renderer().AddOptions(
+		renderer.WithNodeRenderers(
+			gmUtil.Prioritized(&wwExt.PreviewRenderer{}, 0),
+		),
+	)
+	var buf bytes.Buffer
+	err := md.Renderer().Render(&buf, text, doc)
+	if err == nil {
+		node.Preview = buf.String()
+	}
+}
+
+func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLElement, error) {
+	//node.Lock()
+	//defer node.Unlock()
+	defer util.Timer("mdConvert")()
+	StyleName := "catppuccin-mocha"
+	md := newMarkdown(node.Path)
+	var doc ast.Node
+	if node.ParsedDocument != nil {
+		doc = *node.ParsedDocument
+	} else {
+		doc = ParsePost(md, text, node.Index)
+		node.ParsedDocument = &doc
+	}
+	renderedToc := renderTOC(&doc, text)
 
 	titleNode := doc.FirstChild()
 	for titleNode != nil {
@@ -96,14 +182,21 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 		}
 		titleNode = titleNode.NextSibling()
 	}
-	var title *HTMLElement
+	title := NewHTMLElement("h1", ID("title"))
 	if titleNode != nil {
 		h1Node := titleNode.(*ast.Heading)
-		title = NewHTMLElement("h1", ID("title"))
-		title.AppendText(string(h1Node.Text(text)))
+		txt := string(h1Node.Text(text))
+		title.AppendText(txt)
 		doc.RemoveChild(doc, titleNode)
+		if node.Title == "" {
+			(*node).Title = txt
+		}
+	} else {
+		title.AppendText(node.Title)
 	}
 
+	var buf bytes.Buffer
+	var err error
 	err = md.Renderer().Render(&buf, text, doc)
 	if err != nil {
 		panic(err)
@@ -132,25 +225,27 @@ func mdConvert(text []byte, node ConfigNode) (bytes.Buffer, *HTMLElement, *HTMLE
 			Attributes: map[string]string{"media": "print"},
 		}
 	}
-	if !slices.Contains(node.Resolved.Resources, StyleName) {
-		node.Resolved.Resources = append(node.Resolved.Resources, StyleName)
+	if !slices.Contains(node.LocalResources, StyleName) {
+		node.LocalResources = append(node.LocalResources, StyleName)
 	}
-	if !slices.Contains(node.Resolved.Resources, "algol") {
-		node.Resolved.Resources = append(node.Resolved.Resources, "algol")
+	if !slices.Contains(node.LocalResources, "algol") {
+		node.LocalResources = append(node.LocalResources, "algol")
 	}
 
 	return buf, renderedToc, title, err
 }
-func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
+func buildArticleHeader(node *ConfigNode, title, crumbs, article *HTMLElement) {
+	//node.RLock()
+	//defer node.RUnlock()
 	header := article.AppendNew("header")
-	header.Append(breadcrumbs(node))
+	header.Append(crumbs)
 	header.Append(title)
 	info := header.AppendNew("div", Class("post-info"))
 	info.AppendNew("time",
 		ID("publication-date"),
 		map[string]string{"datetime": node.Date.Format(time.DateOnly)},
 	).AppendText(node.Date.Format("Jan _2, 2006"))
-	info.AppendNew("span", ID("author")).AppendText(node.Resolved.Author)
+	info.AppendNew("span", ID("author")).AppendText(node.Author)
 	info.AppendNew("time",
 		ID("updated"),
 		map[string]string{"datetime": node.Updated.Format(time.RFC3339)},
@@ -160,20 +255,20 @@ func buildArticleHeader(node *ConfigNode, title, article *HTMLElement) {
 		ID("navlink-prev"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.Prev.Path),
-	).AppendText(node.Resolved.Prev.Text)
+		Href(node.Prev.Path),
+	).AppendText(node.Prev.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-up"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.Up.Path),
-	).AppendText(node.Resolved.Up.Text)
+		Href(node.Up.Path),
+	).AppendText(node.Up.Text)
 	navlinks.AppendNew("div",
 		ID("navlink-next"),
 		Class("navlink"),
 	).AppendNew("a",
-		Href(node.Resolved.Next.Path),
-	).AppendText(node.Resolved.Next.Text)
+		Href(node.Next.Path),
+	).AppendText(node.Next.Text)
 }
 
 func findIndex(path string) ([]byte, error) {
@@ -195,24 +290,43 @@ func findIndex(path string) ([]byte, error) {
 	return nil, fmt.Errorf("could not find index")
 }
 
-func buildPost(node *ConfigNode) error {
+func BuildPost(node *ConfigNode) ([]string, error) {
+	//node.RLock()
+	//defer node.RUnlock()
+	structuredData := map[string]interface{}{
+		"@context": "https://schema.org",
+		"@type":    "BlogPosting",
+		"author": map[string]interface{}{
+			"@type": "person",
+			"name":  node.Author,
+		},
+		"headline":      node.Title,
+		"datePublished": node.Date.Format(time.DateOnly),
+		"dateUpdated":   node.Updated.Format(time.DateOnly),
+	}
 	meta := (*node.Data).(*WyWebPost)
-	resolved := node.Resolved
+	resolved := node
 	var mdtext []byte
 	var err error
 	if meta.Index != "" {
+		log.Println("INDEX REQUEST: ", meta.Index)
 		mdtext, err = os.ReadFile(filepath.Join(meta.Path, meta.Index))
+		if err != nil {
+			mdtext, err = os.ReadFile(meta.Index)
+		}
+
 	} else {
 		mdtext, err = findIndex(meta.Path)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
-	temp, TOC, title, _ := mdConvert(mdtext, *node)
+	temp, TOC, title, _ := MDConvertPost(mdtext, node)
 	body := NewHTMLElement("body")
 	body.Append(TOC)
 	article := body.AppendNew("article")
-	buildArticleHeader(node, title, article)
+	crumbs, bcSD := Breadcrumbs(node)
+	buildArticleHeader(node, title, crumbs, article)
 	article.AppendText(temp.String()).NoIndent()
 	tagcontainer := article.AppendNew("div", Class("tag-container"))
 	tagcontainer.AppendText("Tags")
@@ -221,5 +335,6 @@ func buildPost(node *ConfigNode) error {
 		taglist.AppendNew("a", Class("tag-link"), Href("/"+filepath.Join(node.Parent.Path, "?tags=")+tag)).AppendText(tag)
 	}
 	resolved.HTML = body
-	return nil
+	jsonld, _ := json.MarshalIndent(structuredData, "", "    ")
+	return []string{string(jsonld), bcSD}, nil
 }

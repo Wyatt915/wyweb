@@ -13,14 +13,13 @@ import (
 	"os/signal"
 	"os/user"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
-	"time"
 
-	"wyweb.site/wyweb/util"
+	. "wyweb.site/internal/wyweb"
+	"wyweb.site/util"
 )
 
 const fileNotFound = `
@@ -33,104 +32,6 @@ const fileNotFound = `
 `
 
 var VERSION string
-
-func timer(name string) func() {
-	start := time.Now()
-	return func() {
-		log.Printf("%s [%v]\n", name, time.Since(start))
-	}
-}
-
-func buildHead(headData HTMLHeadData) *HTMLElement {
-	head := NewHTMLElement("head")
-	title := head.AppendNew("title")
-	title.AppendText(headData.Title)
-	for _, style := range headData.Styles {
-		switch s := style.(type) {
-		case URLResource:
-			head.AppendNew("link", map[string]string{"rel": "stylesheet", "href": s.String}, s.Attributes)
-		case RawResource:
-			tag := head.AppendNew("style", s.Attributes)
-			tag.AppendText(s.String)
-		default:
-			continue
-		}
-	}
-	for _, script := range headData.Scripts {
-		switch s := script.(type) {
-		case URLResource:
-			head.AppendNew("script", map[string]string{"src": s.String, "async": ""}, s.Attributes)
-		case RawResource:
-			tag := head.AppendNew("script", s.Attributes)
-			tag.AppendText(s.String)
-		default:
-			continue
-		}
-	}
-	head.AppendText(strings.Join(headData.Meta, "\n"))
-	return head
-}
-
-//go:embed logo.svg
-var logoString string
-
-func buildFooter(node *ConfigNode) *HTMLElement {
-	footer := NewHTMLElement("footer")
-	logoContainer := footer.AppendNew("div", Class("wyweb-logo"))
-	logoContainer.AppendNew("span").AppendText("Powered by")
-	logoContainer.AppendText(logoString)
-	logoContainer.AppendNew("a", Href("https://wyweb.site"))
-	copyrightMsg := footer.AppendNew("span", Class("copyright"))
-	copyrightMsg.AppendText(
-		fmt.Sprintf("Copyright © %d %s", time.Now().Year(), node.Resolved.Copyright),
-	)
-	return footer
-}
-
-func buildDocument(bodyHTML *HTMLElement, headData HTMLHeadData) (bytes.Buffer, error) {
-	var buf bytes.Buffer
-	buf.WriteString("<!DOCTYPE html>\n")
-	document := NewHTMLElement("html")
-	document.Append(buildHead(headData))
-	document.Append(bodyHTML)
-	RenderHTML(document, &buf)
-	return buf, nil
-}
-
-func breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) *HTMLElement {
-	nav := NewHTMLElement("nav", AriaLabel("Breadcrumbs"))
-	ol := nav.AppendNew("ol", Class("breadcrumbs"))
-	var crumbs []WWNavLink
-	if node != nil {
-		pathList := util.PathToList(node.Path)
-		crumbs = make([]WWNavLink, 1+len(pathList))
-		temp := node
-		idx := len(pathList)
-		for temp != nil && idx >= 0 {
-			crumbs[idx] = WWNavLink{
-				Path: "/" + temp.Path,
-				Text: temp.Resolved.Title,
-			}
-			idx--
-			temp = temp.Parent
-		}
-	} else {
-		crumbs = make([]WWNavLink, 0)
-	}
-	if extraCrumbs != nil {
-		crumbs = slices.Concat(crumbs, extraCrumbs)
-	}
-	var crumb *HTMLElement
-	for _, link := range crumbs {
-		if link.Path == "" || link.Text == "" {
-			continue
-		}
-		crumb = ol.AppendNew("li").AppendNew("a", Href(link.Path))
-		crumb.AppendText(link.Text)
-	}
-	crumb.Attributes["aria-current"] = "page"
-	return nav
-}
 
 func GetRemoteAddr(req *http.Request) string {
 	forwarded := req.Header.Get("X-Forwarded-For")
@@ -149,37 +50,37 @@ func GetHost(req *http.Request) string {
 }
 
 func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *http.Request) {
-	crumbs := breadcrumbs(node, WWNavLink{Path: strings.TrimPrefix(req.URL.String(), "/"), Text: "Tags"})
-	page := buildTagListing(node, taglist, crumbs)
+	crumbs, bcsd := Breadcrumbs(node, WWNavLink{Path: strings.TrimPrefix(req.URL.String(), "/"), Text: "Tags"})
+	page := BuildTagListing(node, taglist, crumbs)
 	headData := node.Tree.GetDefaultHead()
 	headData.Title = "Tags"
-	buf, _ := buildDocument(page, *headData)
+	buf, _ := BuildDocument(page, *headData, bcsd)
 	w.Write(buf.Bytes())
 }
 
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
-	meta := node.Data
-	if node.Resolved.HTML == nil {
-		switch (*meta).(type) {
+	var structuredData []string
+	if node.HTML == nil {
+		switch node.NodeKind {
 		//case *WyWebRoot:
-		case *WyWebListing:
-			err = buildDirListing(node)
-		case *WyWebPost:
-			err = buildPost(node)
-		case *WyWebGallery:
-			err = buildGallery(node)
+		case WWLISTING:
+			structuredData, err = BuildDirListing(node)
+		case WWPOST:
+			structuredData, err = BuildPost(node)
+		case WWGALLERY:
+			structuredData, err = BuildGallery(node)
 		default:
 			w.WriteHeader(500)
 			return
 		}
-		node.Resolved.HTML.Append(buildFooter(node))
+		node.HTML.Append(BuildFooter(node))
 	}
 	if err != nil {
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
 	}
-	buf, _ := buildDocument(node.Resolved.HTML, *node.GetHeadData())
+	buf, _ := BuildDocument(node.HTML, *node.GetHTMLHeadData(), structuredData...)
 	w.Write(buf.Bytes())
 }
 
@@ -220,7 +121,7 @@ type WyWebHandler struct {
 }
 
 func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	defer timer(fmt.Sprintf("%s: %s requested %s", GetHost(req), GetRemoteAddr(req), req.RequestURI))()
+	defer util.Timer(fmt.Sprintf("%s: %s requested %s", GetHost(req), GetRemoteAddr(req), req.RequestURI))()
 	docRoot := req.Header["Document-Root"][0]
 	os.Chdir(docRoot)
 	realm, err := r.Yggdrasil.GetRealm(GetHost(req))

@@ -1,15 +1,35 @@
-package main
+package wyweb
 
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"math"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
-	"wyweb.site/wyweb/util"
+	"wyweb.site/util"
 )
+
+func MagicListing(parent *ConfigNode, name string) *ConfigNode {
+	out := &ConfigNode{
+		Parent:   parent,
+		NodeKind: WWLISTING,
+		Children: make(map[string]*ConfigNode),
+		TagDB:    make(map[string][]Listable),
+		Tree:     parent.Tree,
+	}
+	out.Path = filepath.Join(util.TrimMagicSuffix(parent.Path), name)
+	out.Title = strings.TrimSuffix(name, ".listing")
+	meta, e := ReadWyWeb(out.Path)
+	if e == nil {
+		out.Data = &meta
+	}
+	return out
+}
 
 func makeTagContainer(tags []string) *HTMLElement {
 	tagcontainer := NewHTMLElement("div", Class("tag-container"))
@@ -21,10 +41,26 @@ func makeTagContainer(tags []string) *HTMLElement {
 	return tagcontainer
 }
 
-func postToListItem(post *WyWebPost) *HTMLElement {
+func postToListItem(post *ConfigNode) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
 	link := listing.AppendNew("a", Href(post.Path))
+	if post.Title == "" {
+		mdfile, err := os.ReadFile(post.Index)
+		if err != nil {
+			log.Println(err.Error())
+			return nil
+		}
+		GetTitleFromMarkdown(post, mdfile, nil)
+	}
 	link.AppendNew("h2").AppendText(post.Title)
+	if post.Preview == "" {
+		mdfile, err := os.ReadFile(post.Index)
+		if err != nil {
+			log.Println(err.Error())
+			return nil
+		}
+		GetPreviewFromMarkdown(post, mdfile, nil)
+	}
 	listing.AppendNew("div", Class("preview")).AppendText(post.Preview)
 	listing.Append(makeTagContainer(post.Tags))
 	return listing
@@ -59,11 +95,11 @@ func buildTagCloud(node *ConfigNode, cloud *HTMLElement, crumbs *HTMLElement) *H
 	page := body.AppendNew("article")
 	//header.AppendNew("div", Class("description")).AppendText(description)
 	page.Append(cloud)
-	body.Append(buildFooter(node))
+	body.Append(BuildFooter(node))
 	return body
 }
 
-func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *HTMLElement {
+func BuildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *HTMLElement {
 	if len(taglist) == 0 || (len(taglist) == 1 && taglist[0] == "") {
 		cloud := NewHTMLElement("body")
 		div := cloud.AppendNew("div", Class("tag-cloud"))
@@ -100,7 +136,7 @@ func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 		for _, tag := range taglist {
 			listingData = util.ConcatUnique(listingData, node.GetItemsByTag(tag))
 		}
-		msg.WriteString(fmt.Sprintf("Items in %s tagged with %v", node.Resolved.Title, taglist))
+		msg.WriteString(fmt.Sprintf("Items in %s tagged with %v", node.Title, taglist))
 		msg.WriteString("\n<br>\n")
 		qs := url.Values(map[string][]string{"tags": taglist}).Encode()
 		alltags := NewHTMLElement("a", Href("/tags?"+qs))
@@ -111,12 +147,13 @@ func buildTagListing(node *ConfigNode, taglist []string, crumbs *HTMLElement) *H
 		return listingData[i].GetDate().After(listingData[j].GetDate())
 	})
 	if crumbs == nil {
-		crumbs = breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
+		crumbs, _ = Breadcrumbs(nil, WWNavLink{Path: "/", Text: "Home"}, WWNavLink{Path: "", Text: "Tags"})
 	}
-	return buildListing(listingData, crumbs, "Tags", msg.String())
+	return BuildListing(listingData, crumbs, "Tags", msg.String())
 }
 
-func buildDirListing(node *ConfigNode) error {
+func BuildDirListing(node *ConfigNode) ([]string, error) {
+	node.printTree(0)
 	children := make([]Listable, 0)
 	for _, child := range node.Children {
 		children = append(children, child)
@@ -124,11 +161,12 @@ func buildDirListing(node *ConfigNode) error {
 	sort.Slice(children, func(i, j int) bool {
 		return children[i].GetDate().After(children[j].GetDate())
 	})
-	node.Resolved.HTML = buildListing(children, breadcrumbs(node), node.Resolved.Title, node.Resolved.Description)
-	return nil
+	crumbs, bcSD := Breadcrumbs(node)
+	node.HTML = BuildListing(children, crumbs, node.Title, node.Description)
+	return []string{bcSD}, nil
 }
 
-func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
+func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	body := NewHTMLElement("body")
 	header := body.AppendNew("header", Class("listing-header"))
 	page := body.AppendNew("article")
@@ -138,8 +176,8 @@ func buildListing(items []Listable, breadcrumbs *HTMLElement, title, description
 	for _, item := range items {
 		switch t := item.(type) {
 		case *ConfigNode:
-			if (*t.Data).GetType() == "post" {
-				page.Append(postToListItem((*t.Data).(*WyWebPost)))
+			if t.NodeKind == WWPOST {
+				page.Append(postToListItem(t))
 			}
 		case *GalleryItem:
 			page.Append(galleryItemToListItem(*t))

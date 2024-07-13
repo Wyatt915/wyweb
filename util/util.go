@@ -2,10 +2,19 @@ package util
 
 import (
 	"errors"
+	"log"
 	"os"
 	"slices"
 	"strings"
+	"time"
 )
+
+func Timer(name string) func() {
+	start := time.Now()
+	return func() {
+		log.Printf("%s [%v]\n", name, time.Since(start))
+	}
+}
 
 func PathToList(path string) []string {
 	return strings.Split(string(path), string(os.PathSeparator))
@@ -37,4 +46,16 @@ func ConcatUnique[T comparable](sliceA []T, sliceB []T) []T {
 		}
 	}
 	return result
+}
+
+func TrimMagicSuffix(str string) string {
+	suffixes := []string{
+		".post.md",
+		".listing",
+	}
+	out := strings.Clone(str)
+	for _, x := range suffixes {
+		out = strings.TrimSuffix(out, x)
+	}
+	return out
 }
