@@ -263,7 +263,7 @@ func (node *ConfigNode) resolveIncludes() {
 	local := make([]string, 0)
 	for name, value := range node.Resources {
 		_, ok := node.Tree.Resources[name]
-		if !ok {
+		if ok {
 			log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
 			continue
 		}
