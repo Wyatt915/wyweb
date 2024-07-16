@@ -51,8 +51,13 @@ func MagicPost(parent *ConfigNode, name string) *ConfigNode {
 
 func tocRecurse(table *toc.Item, parent *HTMLElement) {
 	for _, item := range table.Items {
-		child := parent.AppendNew("li")
-		child.AppendNew("a", Href("#"+string(item.ID))).AppendText(string(item.Title))
+		var child *HTMLElement
+		if len(item.Title) > 0 {
+			child = parent.AppendNew("li")
+			child.AppendNew("a", Href("#"+string(item.ID))).AppendText(string(item.Title))
+		} else {
+			child = parent
+		}
 		if len(item.Items) > 0 {
 			ul := child.AppendNew("ul")
 			tocRecurse(item, ul)
@@ -61,7 +66,7 @@ func tocRecurse(table *toc.Item, parent *HTMLElement) {
 }
 
 func renderTOC(doc *ast.Node, text []byte) *HTMLElement {
-	tree, err := toc.Inspect(*doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(true))
+	tree, err := toc.Inspect(*doc, text, toc.MinDepth(1), toc.MaxDepth(5), toc.Compact(false))
 	if err != nil {
 		log.Printf("Error generating table of contents\n")
 		log.Printf("%+v\n", err)

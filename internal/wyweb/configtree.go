@@ -43,6 +43,7 @@ type ConfigNode struct {
 	RealPath       string
 	Images         []RichImage
 	StructuredData []string
+	LastRead       time.Time
 }
 
 type Listable interface {
@@ -469,6 +470,7 @@ func (node *ConfigNode) resolve() error {
 	if node.RealPath == "" {
 		node.RealPath = node.Path
 	}
+	node.inheritIfUndefined()
 	node.SetID()
 	node.registerTags()
 	node.resolved = true
