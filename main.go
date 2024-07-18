@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	. "wyweb.site/internal/wyweb"
 	"wyweb.site/util"
@@ -61,6 +62,16 @@ func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *h
 
 func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	var err error
+	//if node.Index != "" {
+	//	log.Println(node.Index)
+	//	info, e := os.Stat(node.Index)
+	//	log.Println(info.ModTime().Format(time.DateTime))
+	//	log.Println(node.LastRead.Format(time.DateTime))
+	//	if e == nil && info.ModTime().After(node.LastRead) {
+
+	//		(*node).HTML = nil
+	//	}
+	//}
 	if node.HTML == nil {
 		switch node.NodeKind {
 		//case *WyWebRoot:
@@ -75,6 +86,7 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 			return
 		}
 		node.HTML.Append(BuildFooter(node))
+		node.LastRead = time.Now()
 	}
 	if err != nil {
 		w.WriteHeader(404)

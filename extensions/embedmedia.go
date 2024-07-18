@@ -28,7 +28,7 @@ type mediaInfo struct {
 }
 
 type media struct {
-	ast.BaseInline
+	ast.BaseBlock
 	info   mediaInfo
 	medium mediaType
 }
@@ -80,6 +80,19 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 				if isMedia {
 					n.Parent().ReplaceChild(n.Parent(), n, NewMedia(mediaInfo{ext, img.Destination}, flavor))
 				}
+			}
+		}
+		return ast.WalkContinue, nil
+	})
+	// If the media is the only child of a paragraph, replace the paragraph with the media.
+	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if entering && n.Kind() == KindMedia {
+			if n.Parent().Kind() == ast.KindParagraph && n.Parent().ChildCount() == 1 {
+				n.Parent().Parent().ReplaceChild(
+					n.Parent().Parent(),
+					n.Parent(),
+					n,
+				)
 			}
 		}
 		return ast.WalkContinue, nil

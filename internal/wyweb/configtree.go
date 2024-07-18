@@ -715,6 +715,11 @@ func (node *ConfigNode) GetHTMLHeadData() *HTMLHeadData {
 			value = RawResource{String: res.Value, Attributes: res.Attributes}
 		case "url":
 			value = URLResource{String: res.Value, Attributes: res.Attributes}
+		case "local":
+			temp, err := os.ReadFile(filepath.Join(node.RealPath, res.Value))
+			if err == nil {
+				value = RawResource{String: string(temp), Attributes: res.Attributes}
+			}
 		default:
 			log.Printf("Unknown method for resource %s: %s\n", name, res.Type)
 		}
