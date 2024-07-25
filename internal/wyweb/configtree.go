@@ -714,7 +714,12 @@ func (node *ConfigNode) GetHTMLHeadData() *HTMLHeadData {
 		case "raw":
 			value = RawResource{String: res.Value, Attributes: res.Attributes}
 		case "url":
-			value = URLResource{String: res.Value, Attributes: res.Attributes}
+			urlPath, err := util.RewriteURLPath(res.Value, node.RealPath)
+			if err != nil {
+				log.Println(err.Error())
+				continue
+			}
+			value = URLResource{String: urlPath, Attributes: res.Attributes}
 		case "local":
 			temp, err := os.ReadFile(filepath.Join(node.RealPath, res.Value))
 			if err == nil {
