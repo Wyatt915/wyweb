@@ -52,7 +52,9 @@ func NewMedia(i mediaInfo, t mediaType) *media {
 }
 
 // var contextKeySnippet = parser.NewContextKey()
-type mediaTransformer struct{}
+type mediaTransformer struct {
+	sourceEmbeds *[]string
+}
 
 func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc parser.Context) {
 	//var buf bytes.Buffer
@@ -75,6 +77,9 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 					isMedia = true
 				} else if ext == "svg" && slices.Equal(img.Text(reader.Source()), []byte{'%'}) {
 					flavor = mediaSVG
+					if r.sourceEmbeds != nil {
+						*(r.sourceEmbeds) = append(*(r.sourceEmbeds), string(img.Destination))
+					}
 					isMedia = true
 				}
 				if isMedia {
@@ -167,12 +172,12 @@ func (r *MediaHTMLRenderer) renderMedia(w util.BufWriter, source []byte, node as
 	return ast.WalkContinue, nil
 }
 
-type mediaEmbed struct{}
+type mediaEmbed struct{ sourceEmbeds *[]string }
 
 func (e *mediaEmbed) Extend(m goldmark.Markdown) {
 	m.Parser().AddOptions(
 		parser.WithASTTransformers(
-			util.Prioritized(mediaTransformer{}, priorityMediaTransformer),
+			util.Prioritized(mediaTransformer{(*e).sourceEmbeds}, priorityMediaTransformer),
 		),
 	)
 	m.Renderer().AddOptions(
@@ -182,6 +187,6 @@ func (e *mediaEmbed) Extend(m goldmark.Markdown) {
 	)
 }
 
-func EmbedMedia() goldmark.Extender {
-	return &mediaEmbed{}
+func EmbedMedia(sourceEmbeds *[]string) goldmark.Extender {
+	return &mediaEmbed{sourceEmbeds}
 }

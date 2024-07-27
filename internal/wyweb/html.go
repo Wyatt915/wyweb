@@ -2,6 +2,8 @@ package wyweb
 
 import (
 	"bytes"
+	"fmt"
+	"log"
 	"slices"
 	"strings"
 )
@@ -38,7 +40,12 @@ func NewHTMLElement(tag string, attr ...map[string]string) *HTMLElement {
 			continue
 		}
 		for key, value := range attributeList {
-			attributes[key] = value
+			_, ok := attributes[key]
+			if !ok {
+				attributes[key] = value
+			} else {
+				attributes[key] = attributes[key] + " " + value
+			}
 		}
 	}
 	return &HTMLElement{
@@ -199,4 +206,48 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 	if !slices.Contains(voidElements, root.Tag) {
 		text.Write(closeTag(root, depth))
 	}
+}
+
+func (e *HTMLElement) FindElementByID(tag string, id string) (*HTMLElement, error) {
+	if e == nil {
+		return nil, fmt.Errorf("cannot search nil HTMLElement")
+	}
+	if tag == e.Tag || tag == "" {
+		thisID, ok := e.Attributes["id"]
+		if ok && thisID == id {
+			return e, nil
+		}
+	}
+	for _, child := range e.Children {
+		elem, err := child.FindElementByID(tag, id)
+		if err == nil {
+			return elem, err
+		}
+	}
+	return nil, fmt.Errorf("no element found matching %s#%s", tag, id)
+}
+
+func (e *HTMLElement) FindElementByClass(tag string, classes ...string) (*HTMLElement, error) {
+	if e == nil {
+		return nil, fmt.Errorf("cannot search nil HTMLElement")
+	}
+	classListStr, ok := e.Attributes["class"]
+	if ok && (tag == e.Tag || tag == "") {
+		thisClasses := strings.Split(classListStr, " ")
+		log.Printf("This element: %s.%s", e.Tag, strings.Join(thisClasses, "."))
+		allClassesMatch := true
+		for _, cls := range classes {
+			allClassesMatch = allClassesMatch && slices.Contains(thisClasses, cls)
+		}
+		if allClassesMatch {
+			return e, nil
+		}
+	}
+	for _, child := range e.Children {
+		elem, err := child.FindElementByClass(tag, classes...)
+		if err == nil {
+			return elem, err
+		}
+	}
+	return nil, fmt.Errorf("no element found matching %s.%s", tag, strings.Join(classes, "."))
 }

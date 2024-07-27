@@ -126,3 +126,26 @@ func Breadcrumbs(node *ConfigNode, extraCrumbs ...WWNavLink) (*HTMLElement, stri
 	jsonld, _ := json.MarshalIndent(structuredData, "", "    ")
 	return nav, string(jsonld)
 }
+
+func BuildNavlinks(node *ConfigNode) *HTMLElement {
+	navlinks := NewHTMLElement("nav", Class("navlinks"))
+	navlinks.AppendNew("div",
+		ID("navlink-prev"),
+		Class("navlink"),
+	).AppendNew("a",
+		Href(node.Prev.Path),
+	).AppendText(node.Prev.Text)
+	navlinks.AppendNew("div",
+		ID("navlink-up"),
+		Class("navlink"),
+	).AppendNew("a",
+		Href(node.Up.Path),
+	).AppendText(node.Up.Text)
+	navlinks.AppendNew("div",
+		ID("navlink-next"),
+		Class("navlink"),
+	).AppendNew("a",
+		Href(node.Next.Path),
+	).AppendText(node.Next.Text)
+	return navlinks
+}

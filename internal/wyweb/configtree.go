@@ -2,6 +2,7 @@ package wyweb
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"math/bits"
 	"os"
@@ -15,6 +16,15 @@ import (
 	"github.com/yuin/goldmark/ast"
 
 	"wyweb.site/util"
+)
+
+type DependencyKind int
+
+const (
+	KindMDSource = iota
+	KindResourceLocal
+	KindWyWeb
+	KindFileEmbed
 )
 
 type ConfigNode struct {
@@ -43,6 +53,7 @@ type ConfigNode struct {
 	RealPath       string
 	Images         []RichImage
 	StructuredData []string
+	Dependencies   map[string]DependencyKind //All files on which this node depends
 	LastRead       time.Time
 }
 
@@ -119,6 +130,7 @@ func newConfigNode() *ConfigNode {
 	var out *ConfigNode
 	out.Children = make(map[string]*ConfigNode)
 	out.TagDB = make(map[string][]Listable)
+	out.Dependencies = make(map[string]DependencyKind)
 	return out
 }
 
@@ -260,6 +272,9 @@ func copyHeadData(dest *HeadData, src *HeadData) {
 }
 
 func (node *ConfigNode) resolveIncludes() {
+	if node.Tree.Root == node {
+		return
+	}
 	node.LocalResources = make([]string, 0)
 	local := make([]string, 0)
 	for name, value := range node.Resources {
@@ -267,6 +282,17 @@ func (node *ConfigNode) resolveIncludes() {
 		if ok {
 			log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
 			continue
+		}
+		if value.Method == "url" || value.Method == "local" {
+			var err error
+			value.Value, err = util.RewriteURLPath(value.Value, node.RealPath)
+			if err != nil {
+				log.Println(err.Error())
+				continue
+			}
+		}
+		if value.Method == "local" {
+			node.Dependencies[value.Value] = KindResourceLocal
 		}
 		node.Tree.Resources[name] = value
 		local = append(local, name)
@@ -359,7 +385,6 @@ func (node *ConfigNode) SetFieldsFromWyWebMeta(meta *WyWebMeta) error {
 			node.Meta = make([]string, 0)
 		}
 		node.Meta = append(node.Meta, node.Parent.Meta...)
-		node.resolveIncludes()
 	default:
 		log.Printf("Meta: %+v\n", *meta)
 		log.Printf("%+v", node.PageData)
@@ -463,6 +488,7 @@ func (node *ConfigNode) resolve() error {
 		log.Println(err.Error())
 		return err
 	}
+	node.Dependencies[node.Index] = KindMDSource
 	node.Magic()
 	if node.StructuredData == nil {
 		node.StructuredData = make([]string, 0)
@@ -470,20 +496,38 @@ func (node *ConfigNode) resolve() error {
 	if node.RealPath == "" {
 		node.RealPath = node.Path
 	}
+	node.resolveIncludes()
 	node.inheritIfUndefined()
 	node.SetID()
 	node.registerTags()
+	node.LastRead = time.Now()
 	node.resolved = true
+	//fmt.Printf("%s\n\t", node.Title)
+	//for k, v := range node.Dependencies {
+	//	fmt.Printf("%s (%d)\t", k, v)
+	//}
+	//fmt.Println()
 	return nil
 }
 
 func setNavLink(nl *WWNavLink, path, title string) {
-	if nl.Path == "" {
-		nl.Path = path
+	//TODO: See if these fields were preset in the wyweb file
+	//if nl.Path == "" {
+	//	nl.Path = path
+	//}
+	//if nl.Text == "" {
+	//	nl.Text = title
+	//}
+	nl.Path = path
+	nl.Text = title
+}
+
+func rerenderNavLinks(node *ConfigNode) {
+	oldnav, err := node.HTML.FindElementByClass("nav", "navlinks")
+	if err != nil {
+		return
 	}
-	if nl.Text == "" {
-		nl.Text = title
-	}
+	*oldnav = *BuildNavlinks(node)
 }
 
 // If NavLinks are not explicitly defined, set them by ordering items by creation date
@@ -516,6 +560,54 @@ func setNavLinksOfChildren(node *ConfigNode) {
 			setNavLink(&siblings[i].Next, path, text)
 		}
 	}
+	for _, sib := range siblings {
+		rerenderNavLinks(sib)
+	}
+}
+
+func createNodeFromPath(parent *ConfigNode, dir string, file os.DirEntry) (*ConfigNode, error) {
+	filename := file.Name()
+	ignore := []string{".git"}
+	if slices.Contains(ignore, filename) {
+		return nil, fmt.Errorf("ignoring %s", filename)
+	}
+	var meta WyWebMeta
+	var e error
+	path := filepath.Join(dir, filename)
+	var child *ConfigNode
+	if !file.IsDir() {
+		if strings.HasSuffix(filename, ".post.md") {
+			child = MagicPost(parent, filename)
+		} else {
+			return nil, nil
+		}
+	} else {
+		wwFileName := filepath.Join(dir, filename, "wyweb")
+		_, e = os.Stat(wwFileName)
+		if e != nil {
+			if strings.HasSuffix(filename, ".listing") || strings.ToLower(filename) == "blog" {
+				child = MagicListing(parent, filename)
+			} else {
+				return nil, nil
+			}
+		} else {
+			meta, e = ReadWyWeb(path)
+			if e != nil {
+				return nil, fmt.Errorf("couldn't read %s", path)
+			}
+			child = &ConfigNode{
+				Parent:       parent,
+				Data:         &meta,
+				Children:     make(map[string]*ConfigNode),
+				TagDB:        make(map[string][]Listable),
+				Dependencies: make(map[string]DependencyKind),
+				Tree:         parent.Tree,
+			}
+			(*child).Path = path
+			(*child).Dependencies[wwFileName] = KindWyWeb
+		}
+	}
+	return child, nil
 }
 
 func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
@@ -528,57 +620,22 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 	if err != nil {
 		return err
 	}
-	ignore := []string{".git"}
 	for _, file := range files {
-		if slices.Contains(ignore, file.Name()) {
-			continue
-		}
-		var meta WyWebMeta
-		var e error
-		var path, key string
-		var child *ConfigNode
-		if !file.IsDir() {
-			if strings.HasSuffix(file.Name(), ".post.md") {
-				child = MagicPost(node, file.Name())
-				key = strings.TrimSuffix(file.Name(), ".post.md")
-				path = filepath.Join(dir, file.Name())
-			} else {
-				continue
-			}
-		} else {
-			path = filepath.Join(dir, file.Name())
-			key = path
-			wwFileName := filepath.Join(dir, file.Name(), "wyweb")
-			_, e = os.Stat(wwFileName)
-			if e != nil {
-				if strings.HasSuffix(file.Name(), ".listing") || strings.ToLower(file.Name()) == "blog" {
-					key = filepath.Join(dir, strings.TrimSuffix(file.Name(), ".listing"))
-					path = filepath.Join(dir, file.Name())
-					child = MagicListing(node, file.Name())
-				} else {
-					continue
-				}
-			} else {
-				meta, e = ReadWyWeb(path)
-				if e != nil {
-					log.Printf("couldn't read %s", path)
-					continue
-				}
-				child = &ConfigNode{
-					Parent:   node,
-					Data:     &meta,
-					Children: make(map[string]*ConfigNode),
-					TagDB:    make(map[string][]Listable),
-					Tree:     tree,
-				}
-				(*child).Path = path
-			}
-		}
-		err := child.resolve()
+		child, err := createNodeFromPath(node, dir, file)
 		if err != nil {
 			log.Println(err.Error())
 			continue
 		}
+		if child == nil {
+			continue
+		}
+		err = child.resolve()
+		if err != nil {
+			log.Println(err.Error())
+			continue
+		}
+		path := filepath.Join(dir, file.Name())
+		key := util.TrimMagicSuffix(path)
 		node.Children[filepath.Base(key)] = child
 		child.growTree(path, tree)
 	}
@@ -589,11 +646,12 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	var err error
 	rootnode := ConfigNode{
-		Parent:   nil,
-		Data:     nil,
-		Children: make(map[string]*ConfigNode),
-		Tree:     nil,
-		TagDB:    make(map[string][]Listable),
+		Parent:       nil,
+		Data:         nil,
+		Children:     make(map[string]*ConfigNode),
+		Tree:         nil,
+		TagDB:        make(map[string][]Listable),
+		Dependencies: make(map[string]DependencyKind),
 	}
 	out := ConfigTree{
 		Domain:       domain,
@@ -623,6 +681,7 @@ func BuildConfigTree(documentRoot string, domain string) (*ConfigTree, error) {
 	//	}
 	//}
 	out.MakeSitemap()
+	go out.watchForDependencyChanges(time.Second)
 	return &out, nil
 }
 
@@ -714,14 +773,9 @@ func (node *ConfigNode) GetHTMLHeadData() *HTMLHeadData {
 		case "raw":
 			value = RawResource{String: res.Value, Attributes: res.Attributes}
 		case "url":
-			urlPath, err := util.RewriteURLPath(res.Value, node.RealPath)
-			if err != nil {
-				log.Println(err.Error())
-				continue
-			}
-			value = URLResource{String: urlPath, Attributes: res.Attributes}
+			value = URLResource{String: res.Value, Attributes: res.Attributes}
 		case "local":
-			temp, err := os.ReadFile(filepath.Join(node.RealPath, res.Value))
+			temp, err := os.ReadFile(res.Value)
 			if err == nil {
 				value = RawResource{String: string(temp), Attributes: res.Attributes}
 			}
@@ -744,4 +798,65 @@ func (node *ConfigNode) GetHTMLHeadData() *HTMLHeadData {
 		Scripts: scripts,
 	}
 	return out
+}
+
+func watchRecurse(node *ConfigNode) {
+	needsUpdate := make([]string, 0)
+	for key, child := range node.Children {
+		modifiedDep := false
+		for path, _ := range child.Dependencies {
+			st, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
+			if st.ModTime().After(child.LastRead.Add(time.Second)) {
+				modifiedDep = true
+				break
+			}
+		}
+		if modifiedDep {
+			needsUpdate = append(needsUpdate, key)
+		}
+	}
+	for _, staleNode := range needsUpdate {
+		tempChildMap := make(map[string]*ConfigNode)
+		for k, v := range node.Children[staleNode].Children {
+			tempChildMap[k] = v
+		}
+		path := node.Children[staleNode].RealPath
+		dir := filepath.Dir(path)
+		st, _ := os.Stat(path)
+		file := fs.FileInfoToDirEntry(st)
+		newChild, err := createNodeFromPath(node, dir, file)
+		if err != nil {
+			log.Println(err.Error())
+			continue
+		}
+		delete((*node).Children, staleNode)
+		err = newChild.resolve()
+		if err != nil {
+			log.Println("ERROR: ", err.Error())
+		}
+		log.Printf("UPDATED %s", newChild.Title)
+		(*newChild).Children = tempChildMap
+		for key := range newChild.Children {
+			newChild.Children[key].Parent = newChild
+		}
+		t := time.Now()
+		newChild.LastRead = t
+		node.Children[staleNode] = newChild
+	}
+	if len(needsUpdate) > 0 {
+		setNavLinksOfChildren(node)
+	}
+	for _, child := range node.Children {
+		watchRecurse(child)
+	}
+}
+
+func (tree *ConfigTree) watchForDependencyChanges(frequency time.Duration) {
+	for true {
+		watchRecurse(tree.Root)
+		time.Sleep(frequency)
+	}
 }

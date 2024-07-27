@@ -86,10 +86,10 @@ func renderTOC(doc *ast.Node, text []byte) *HTMLElement {
 	return elem
 }
 
-func newMarkdown(path string) goldmark.Markdown {
+func newMarkdown(path string, sourceEmbeds *[]string) goldmark.Markdown {
 	return goldmark.New(
 		goldmark.WithExtensions(
-			wwExt.EmbedMedia(),
+			wwExt.EmbedMedia(sourceEmbeds),
 			wwExt.AttributeList(),
 			wwExt.LinkRewrite(path),
 			wwExt.AlertExtension(),
@@ -128,7 +128,11 @@ func GetTitleFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
 		if node.ParsedDocument != nil {
 			doc = *node.ParsedDocument
 		} else {
-			doc = ParsePost(newMarkdown(node.Path), text, node.Index)
+			sourceEmbeds := make([]string, 0)
+			doc = ParsePost(newMarkdown(node.Path, &sourceEmbeds), text, node.Index)
+			for _, s := range sourceEmbeds {
+				node.Dependencies[s] = KindFileEmbed
+			}
 			node.ParsedDocument = &doc
 		}
 	}
@@ -147,7 +151,11 @@ func GetTitleFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
 }
 
 func GetPreviewFromMarkdown(node *ConfigNode, text []byte, doc ast.Node) {
-	md := newMarkdown(node.Path)
+	sourceEmbeds := make([]string, 0)
+	md := newMarkdown(node.Path, &sourceEmbeds)
+	for _, s := range sourceEmbeds {
+		node.Dependencies[s] = KindFileEmbed
+	}
 	if doc == nil {
 		if node.ParsedDocument != nil {
 			doc = *node.ParsedDocument
@@ -173,13 +181,17 @@ func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *
 	//defer node.Unlock()
 	defer util.Timer("mdConvert")()
 	StyleName := "catppuccin-mocha"
-	md := newMarkdown(node.Path)
+	sourceEmbeds := make([]string, 0)
+	md := newMarkdown(node.Path, &sourceEmbeds)
 	var doc ast.Node
 	if node.ParsedDocument != nil {
 		doc = *node.ParsedDocument
 	} else {
 		doc = ParsePost(md, text, node.Index)
 		node.ParsedDocument = &doc
+	}
+	for _, s := range sourceEmbeds {
+		node.Dependencies[s] = KindFileEmbed
 	}
 	renderedToc := renderTOC(&doc, text)
 
@@ -242,6 +254,7 @@ func MDConvertPost(text []byte, node *ConfigNode) (bytes.Buffer, *HTMLElement, *
 
 	return buf, renderedToc, title, err
 }
+
 func buildArticleHeader(node *ConfigNode, title, crumbs, article *HTMLElement) {
 	//node.RLock()
 	//defer node.RUnlock()
@@ -258,25 +271,7 @@ func buildArticleHeader(node *ConfigNode, title, crumbs, article *HTMLElement) {
 		ID("updated"),
 		map[string]string{"datetime": node.Updated.Format(time.RFC3339)},
 	).AppendText(node.Updated.Format("Jan _2, 2006"))
-	navlinks := header.AppendNew("nav", Class("navlinks"))
-	navlinks.AppendNew("div",
-		ID("navlink-prev"),
-		Class("navlink"),
-	).AppendNew("a",
-		Href(node.Prev.Path),
-	).AppendText(node.Prev.Text)
-	navlinks.AppendNew("div",
-		ID("navlink-up"),
-		Class("navlink"),
-	).AppendNew("a",
-		Href(node.Up.Path),
-	).AppendText(node.Up.Text)
-	navlinks.AppendNew("div",
-		ID("navlink-next"),
-		Class("navlink"),
-	).AppendNew("a",
-		Href(node.Next.Path),
-	).AppendText(node.Next.Text)
+	header.Append(BuildNavlinks(node))
 }
 
 func findIndex(path string) ([]byte, error) {
