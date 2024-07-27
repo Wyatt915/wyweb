@@ -158,7 +158,7 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		w.WriteHeader(404)
 		w.Write([]byte(fileNotFound))
-		log.Printf("Bizarro error bruv\n")
+		log.Printf(err.Error())
 		return
 	}
 

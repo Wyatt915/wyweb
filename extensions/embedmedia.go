@@ -78,7 +78,7 @@ func (r mediaTransformer) Transform(node *ast.Document, reader text.Reader, pc p
 				} else if ext == "svg" && slices.Equal(img.Text(reader.Source()), []byte{'%'}) {
 					flavor = mediaSVG
 					if r.sourceEmbeds != nil {
-						*(r.sourceEmbeds) = append(*(r.sourceEmbeds), string(img.Destination))
+						*(r.sourceEmbeds) = append(*(r.sourceEmbeds), strings.TrimLeft(string(img.Destination), "/"))
 					}
 					isMedia = true
 				}

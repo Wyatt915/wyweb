@@ -3,7 +3,6 @@ package wyweb
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"slices"
 	"strings"
 )
@@ -208,46 +207,70 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 	}
 }
 
-func (e *HTMLElement) FindElementByID(tag string, id string) (*HTMLElement, error) {
+func (e *HTMLElement) GetElementByID(id string) (*HTMLElement, error) {
 	if e == nil {
 		return nil, fmt.Errorf("cannot search nil HTMLElement")
 	}
-	if tag == e.Tag || tag == "" {
-		thisID, ok := e.Attributes["id"]
-		if ok && thisID == id {
+	if thisID, ok := e.Attributes["id"]; ok {
+		idList := strings.Split(thisID, " ")
+		if slices.Contains(idList, id) {
 			return e, nil
 		}
 	}
 	for _, child := range e.Children {
-		elem, err := child.FindElementByID(tag, id)
+		elem, err := child.GetElementByID(id)
 		if err == nil {
 			return elem, err
 		}
 	}
-	return nil, fmt.Errorf("no element found matching %s#%s", tag, id)
+	return nil, fmt.Errorf("no element found matching #%s", id)
 }
 
-func (e *HTMLElement) FindElementByClass(tag string, classes ...string) (*HTMLElement, error) {
+func (e *HTMLElement) FirstElementByClass(classes ...string) (*HTMLElement, error) {
 	if e == nil {
 		return nil, fmt.Errorf("cannot search nil HTMLElement")
 	}
-	classListStr, ok := e.Attributes["class"]
-	if ok && (tag == e.Tag || tag == "") {
-		thisClasses := strings.Split(classListStr, " ")
-		log.Printf("This element: %s.%s", e.Tag, strings.Join(thisClasses, "."))
+	if classListStr, ok := e.Attributes["class"]; ok {
+		CurrentClassList := strings.Split(classListStr, " ")
 		allClassesMatch := true
 		for _, cls := range classes {
-			allClassesMatch = allClassesMatch && slices.Contains(thisClasses, cls)
+			allClassesMatch = allClassesMatch && slices.Contains(CurrentClassList, cls)
 		}
 		if allClassesMatch {
 			return e, nil
 		}
 	}
 	for _, child := range e.Children {
-		elem, err := child.FindElementByClass(tag, classes...)
+		elem, err := child.FirstElementByClass(classes...)
 		if err == nil {
 			return elem, err
 		}
 	}
-	return nil, fmt.Errorf("no element found matching %s.%s", tag, strings.Join(classes, "."))
+	return nil, fmt.Errorf("no element found matching .%s", strings.Join(classes, "."))
+}
+
+func (e *HTMLElement) RemoveNode(target *HTMLElement) bool {
+	//removeIndex := -1
+	for idx, child := range e.Children {
+		if child == target {
+			//removeIndex = idx
+			//e.Children[idx] = nil
+			e.Children = append(e.Children[:idx], e.Children[idx+1:]...)
+			return true
+		}
+		if child.RemoveNode(target) {
+			return true
+		}
+	}
+	//if removeIndex >= 0 {
+	//	e.Children = append(e.Children[:removeIndex], e.Children[removeIndex+1:]...)
+	//	return true
+	//}
+	return false
+}
+
+func printHTML(elem *HTMLElement) {
+	var buf bytes.Buffer
+	RenderHTML(elem, &buf)
+	fmt.Printf("%s\n", buf.String())
 }

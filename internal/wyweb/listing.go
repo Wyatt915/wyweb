@@ -43,7 +43,7 @@ func makeTagContainer(tags []string) *HTMLElement {
 }
 
 func postToListItem(post *ConfigNode) *HTMLElement {
-	listing := NewHTMLElement("div", Class("listing"))
+	listing := NewHTMLElement("div", Class("listing"), ID(post.GetIDb64()))
 	link := listing.AppendNew("a", Href(post.Path))
 	if post.Title == "" {
 		mdfile, err := os.ReadFile(post.Index)
@@ -170,7 +170,7 @@ func BuildDirListing(node *ConfigNode) error {
 func BuildListing(items []Listable, breadcrumbs *HTMLElement, title, description string) *HTMLElement {
 	body := NewHTMLElement("body")
 	header := body.AppendNew("header", Class("listing-header"))
-	page := body.AppendNew("article")
+	page := body.AppendNew("article", Class("listing-container"))
 	header.Append(breadcrumbs)
 	header.AppendNew("h1").AppendText(title)
 	header.AppendNew("div", Class("description")).AppendText(description)

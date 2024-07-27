@@ -4,6 +4,7 @@
 *.mp3
 *.css
 wyweb
+wyweb.site
 resources/
 test-site/
 notes/
