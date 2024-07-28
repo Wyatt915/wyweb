@@ -254,16 +254,16 @@ func includeExclude(local []string, include []string, exclude []string) []string
 	for _, name := range local {
 		if slices.Contains(exclude, name) {
 			log.Printf("WARN: The locally defined %s, is already defined and set to be excluded. The new definition will be ignored.\n", name)
+			continue
 		} else if slices.Contains(include, name) {
 			log.Printf("WARN: The locally defined %s, is already defined. The new definition will be ignored.\n", name)
-		} else {
-			result = append(result, name)
 		}
+		result = append(result, name)
 	}
 	for _, name := range include {
-		exists := slices.Contains(local, name)
+		//exists := slices.Contains(local, name)
 		excluded := slices.Contains(exclude, name)
-		if !exists && !excluded {
+		if !excluded {
 			result = append(result, name)
 		}
 	}
@@ -321,11 +321,6 @@ func (node *ConfigNode) resolveIncludes() {
 	node.LocalResources = make([]string, 0)
 	local := make([]string, 0)
 	for name, value := range node.Resources {
-		_, ok := node.Tree.Resources[name]
-		if ok {
-			log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
-			continue
-		}
 		if value.Method == "url" || value.Method == "local" {
 			var err error
 			value.Value, err = util.RewriteURLPath(value.Value, node.RealPath)
@@ -335,10 +330,16 @@ func (node *ConfigNode) resolveIncludes() {
 			}
 		}
 		if value.Method == "local" {
+			value.Value = strings.TrimLeft(value.Value, string(os.PathSeparator))
 			node.Dependencies[value.Value] = KindResourceLocal
 		}
-		node.Tree.Resources[name] = value
 		local = append(local, name)
+		_, ok := node.Tree.Resources[name]
+		if ok {
+			log.Printf("WARN: In configuration %s, the Resource %s is already defined. The new definition will be ignored.\n", node.Path, name)
+		} else {
+			node.Tree.Resources[name] = value
+		}
 	}
 	includes := util.ConcatUnique(node.Include, node.Parent.LocalResources)
 	excludes := make([]string, len(node.Parent.Exclude))
