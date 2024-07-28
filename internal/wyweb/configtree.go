@@ -676,9 +676,9 @@ func (node *ConfigNode) growTree(dir string, tree *ConfigTree) error {
 			continue
 		}
 		if slices.Contains(node.knownFiles, file.Name()) && node.LastRead.After(info.ModTime()) {
-			node.LastRead = time.Now()
 			n, ok := node.Children[filepath.Base(key)]
 			if ok {
+				node.LastRead = time.Now()
 				n.resolve()
 				n.growTree(path, tree)
 				continue
@@ -939,7 +939,6 @@ func watchRecurse(node *ConfigNode) {
 		for _, staleNode := range needsUpdate {
 			oldlisting, err := node.HTML.GetElementByID(staleIDs[staleNode])
 			if err != nil {
-				log.Println(err.Error())
 				continue
 			}
 			*oldlisting = *postToListItem(node.Children[staleNode])
@@ -947,7 +946,6 @@ func watchRecurse(node *ConfigNode) {
 		for _, deadNode := range needsRemoval {
 			oldlisting, err := node.HTML.GetElementByID(staleIDs[deadNode])
 			if err != nil {
-				log.Println(err.Error())
 				continue
 			}
 			node.HTML.RemoveNode(oldlisting)
