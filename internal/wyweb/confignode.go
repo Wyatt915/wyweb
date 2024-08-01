@@ -171,7 +171,7 @@ func (n *ConfigNode) AsRSSItem() *HTMLElement {
 func (n *ConfigNode) GetIDb64() string {
 	bs := make([]byte, 8)
 	binary.LittleEndian.PutUint64(bs, n.id)
-	return base64.URLEncoding.EncodeToString(bs)
+	return base64.RawURLEncoding.EncodeToString(bs)
 }
 
 func newConfigNode() *ConfigNode {

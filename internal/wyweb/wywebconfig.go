@@ -34,6 +34,8 @@
 package wyweb
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"html"
 	"log"
@@ -146,18 +148,18 @@ type WyWebPost struct {
 }
 
 type RichImage struct {
-	id          uint64
-	Addenda     string    `yaml:"addenda,omitempty"`
-	Alt         string    `yaml:"alt,omitempty"`
-	Artist      string    `yaml:"artist,omitempty"`
-	Date        time.Time `yaml:"date,omitempty"`
-	Description string    `yaml:"description,omitempty"`
-	Filename    string    `yaml:"filename,omitempty"`
-	Location    string    `yaml:"location,omitempty"`
-	Medium      string    `yaml:"medium,omitempty"`
-	Title       string    `yaml:"title,omitempty"`
-	Tags        []string  `yaml:"tags,omitempty"`
-	ParentPage  *ConfigNode
+	id          uint64      `json:"-"`
+	Addenda     string      `yaml:"addenda,omitempty" json:"addenda,omitempty"`
+	Alt         string      `yaml:"alt,omitempty" json:"alt,omitempty"`
+	Artist      string      `yaml:"artist,omitempty" json:"artist,omitempty"`
+	Date        time.Time   `yaml:"date,omitempty" json:"date,omitempty"`
+	Description string      `yaml:"description,omitempty" json:"description,omitempty"`
+	Filename    string      `yaml:"filename,omitempty" json:"filename,omitempty"`
+	Location    string      `yaml:"location,omitempty" json:"location,omitempty"`
+	Medium      string      `yaml:"medium,omitempty" json:"medium,omitempty"`
+	Title       string      `yaml:"title,omitempty" json:"title,omitempty"`
+	Tags        []string    `yaml:"tags,omitempty" json:"tags,omitempty"`
+	ParentPage  *ConfigNode `json:"-"`
 }
 
 func (n *RichImage) GetDate() time.Time {
@@ -191,6 +193,12 @@ func (n *RichImage) SetID() {
 	//fmt.Printf("%064b\n\n", n.id)
 }
 
+func (n *RichImage) GetIDb64() string {
+	bs := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bs, n.id)
+	return base64.RawURLEncoding.EncodeToString(bs)
+}
+
 func (n *RichImage) AsRSSItem() *HTMLElement {
 	item := NewHTMLElement("item")
 	item.AppendNew("title").AppendText(n.Title)
@@ -201,14 +209,17 @@ func (n *RichImage) AsRSSItem() *HTMLElement {
 }
 
 func (r *RichImage) StructuredData() interface{} {
+
+	contentURL := url.URL{
+		Scheme: "https",
+		Host:   r.ParentPage.Tree.Domain,
+		Path:   filepath.Join(r.ParentPage.RealPath, r.Filename),
+	}
+
 	out := map[string]interface{}{
-		"@context": "https://schema.org/",
-		"@type":    "ImageObject",
-		"contentURL": url.URL{
-			Scheme: "https",
-			Host:   r.ParentPage.Tree.Domain,
-			Path:   filepath.Join(r.ParentPage.RealPath, r.Filename),
-		},
+		"@context":   "https://schema.org/",
+		"@type":      "ImageObject",
+		"contentURL": contentURL.String(),
 		"creator": map[string]interface{}{
 			"@type": "Person",
 			"name":  r.Artist,

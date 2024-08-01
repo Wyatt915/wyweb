@@ -93,7 +93,7 @@ func RouteTags(node *ConfigNode, taglist []string, w http.ResponseWriter, req *h
 	w.Write(buf.Bytes())
 }
 
-func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
+func RouteStatic(node *ConfigNode, w http.ResponseWriter, req *http.Request) {
 	var err error
 	//if node.Index != "" {
 	//	log.Println(node.Index)
@@ -105,6 +105,23 @@ func RouteStatic(node *ConfigNode, w http.ResponseWriter) {
 	//		(*node).HTML = nil
 	//	}
 	//}
+
+	if info, ok := req.URL.Query()["info"]; ok {
+		switch node.NodeKind {
+		case WWGALLERY:
+			var json []byte
+			json, err = GetGalleryInfo(node, info)
+			if err == nil {
+				w.Header().Add("content-type", "application/json; charset=utf-8")
+				w.WriteHeader(200)
+				w.Write(json)
+			} else {
+				w.WriteHeader(404)
+				w.Write([]byte(err.Error()))
+			}
+		}
+		return
+	}
 	if node.HTML == nil {
 		switch node.NodeKind {
 		//case *WyWebRoot:
@@ -200,7 +217,7 @@ func (r WyWebHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	RouteStatic(node, w)
+	RouteStatic(node, w, req)
 }
 
 func TryListen(sockfile string) (net.Listener, error) {

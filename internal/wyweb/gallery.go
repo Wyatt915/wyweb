@@ -484,6 +484,17 @@ func BuildGallery(node *ConfigNode) error {
 	galleryElem := main.AppendNew("div", Class("gallery"))
 	galleryRow := galleryElem.AppendNew("div", Class("gallery-row"))
 	imageNum := 0
+
+	richImages := make(map[string]RichImage)
+	structuredData := make([]interface{}, 0)
+	for _, img := range node.Images {
+		log.Println(img.Filename)
+		if slices.ContainsFunc(fullsized, func(e string) bool { return filepath.Base(e) == img.Filename }) {
+			structuredData = append(structuredData, img.StructuredData())
+			richImages[img.Filename] = img
+		}
+	}
+
 	for _, col := range grid {
 		galleryCol := galleryRow.AppendNew("div", Class("gallery-col"))
 		for _, pair := range col {
@@ -494,14 +505,12 @@ func BuildGallery(node *ConfigNode) error {
 				"data-fullsize":  pair.Full,
 				"loading":        "lazy",
 			}
+			if img, ok := richImages[filepath.Base(pair.Full)]; ok {
+				attr["data-rich-image-info"] = img.GetIDb64()
+				attr["alt"] = img.Alt
+			}
 			galleryCol.AppendNew("img", Class("gallery-image"), attr)
 			imageNum++
-		}
-	}
-	structuredData := make([]interface{}, 0)
-	for _, img := range node.Images {
-		if slices.Contains(fullsized, img.Filename) {
-			structuredData = append(structuredData, img.StructuredData())
 		}
 	}
 	node.HTML = main
@@ -513,4 +522,22 @@ func BuildGallery(node *ConfigNode) error {
 	}
 
 	return nil
+}
+
+func GetGalleryInfo(node *ConfigNode, infoReqs []string) ([]byte, error) {
+	results := make(map[string]RichImage)
+
+	for _, req := range infoReqs {
+		for _, img := range node.Images {
+			if id := img.GetIDb64(); id == req {
+				log.Println(img.Filename)
+				results[id] = img
+				break
+			}
+		}
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("no images found")
+	}
+	return json.Marshal(results)
 }
