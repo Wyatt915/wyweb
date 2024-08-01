@@ -35,6 +35,7 @@ package wyweb
 
 import (
 	"fmt"
+	"html"
 	"log"
 	"math/bits"
 	"net/url"
@@ -188,6 +189,15 @@ func (n *RichImage) SetID() {
 		bitsRemaining -= runeSize
 	}
 	//fmt.Printf("%064b\n\n", n.id)
+}
+
+func (n *RichImage) AsRSSItem() *HTMLElement {
+	item := NewHTMLElement("item")
+	item.AppendNew("title").AppendText(n.Title)
+	item.AppendNew("link").AppendText("https://" + n.ParentPage.Tree.Domain + "/" + n.ParentPage.Path)
+	item.AppendNew("description").AppendText(html.EscapeString(n.Description))
+	item.AppendNew("pubDate").AppendText(n.Date.Format(time.RFC1123Z))
+	return item
 }
 
 func (r *RichImage) StructuredData() interface{} {

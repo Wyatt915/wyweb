@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -68,7 +69,7 @@ func (node *ConfigNode) buildSitemap(urlset *HTMLElement, baseURL string) {
 
 func (tree *ConfigTree) MakeSitemap() {
 	var sitemapXML bytes.Buffer
-	sitemapXML.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	sitemapXML.WriteString(`<?xml version="1.0" encoding="UTF-8" ?>`)
 	sitemapXML.WriteByte('\n')
 	urlset := NewHTMLElement("urlset", map[string]string{
 		"xmlns":       "http://www.sitemaps.org/schemas/sitemap/0.9",
@@ -85,4 +86,109 @@ func (tree *ConfigTree) MakeSitemap() {
 	}
 	defer sitemapFile.Close()
 	sitemapFile.Write(sitemapXML.Bytes())
+}
+
+func (node *ConfigNode) MakeRSS() []Listable {
+	if !(node.NodeKind == WWGALLERY || node.NodeKind == WWLISTING) {
+		return nil
+	}
+	path := filepath.Join(node.RealPath, "rssfeed.xml")
+	rssFile, err := os.Create(path)
+	if err != nil && !os.IsExist(err) {
+		fmt.Printf("%+v\n", err)
+		return nil
+	}
+	defer rssFile.Close()
+	var rssXML bytes.Buffer
+	rssXML.WriteString(`<?xml version="1.0" encoding="UTF-8" ?>`)
+	rssXML.WriteByte('\n')
+	baseURL := "https://" + node.Tree.Domain + "/"
+	feed := NewHTMLElement("rss", map[string]string{
+		"version":    "2.0",
+		"xmlns:atom": "http://www.w3.org/2005/Atom",
+	})
+	channel := feed.AppendNew("channel")
+	channel.AppendNew("title").AppendText(node.Title)
+	channel.AppendNew("description").AppendText(node.Description)
+	channel.AppendNew("link").AppendText(baseURL + node.Path)
+	channel.AppendNew("copyright").AppendText(node.Copyright)
+	channel.AppendNew("lastBuildDate").AppendText(time.Now().Format(time.RFC1123Z))
+	pubDate, _ := node.getMostRecentDates()
+	channel.AppendNew("pubDate").AppendText(pubDate.Format(time.RFC1123Z))
+	channel.AppendNew("ttl").AppendText("60")
+	channel.AppendNew("atom:link", Href(baseURL+path), map[string]string{"rel": "self", "type": "application/rss+xml"}).SetSelfClosing(true)
+
+	children := make([]Listable, 0)
+	switch node.NodeKind {
+	case WWLISTING:
+		for _, child := range node.Children {
+			children = append(children, child)
+		}
+	case WWGALLERY:
+		for _, child := range node.Images {
+			children = append(children, &child)
+		}
+	}
+	sort.Slice(children, func(i, j int) bool {
+		return children[i].GetDate().After(children[j].GetDate())
+	})
+	for _, child := range children {
+		channel.Append(child.AsRSSItem())
+	}
+	RenderHTML(feed, &rssXML)
+	rssFile.Write(rssXML.Bytes())
+	return children
+}
+
+func (tree *ConfigTree) MakeRSS() {
+	path := "rssfeed.xml"
+	rssFile, err := os.Create(path)
+	if err != nil && !os.IsExist(err) {
+		fmt.Printf("%+v\n", err)
+		return
+	}
+	defer rssFile.Close()
+	var rssXML bytes.Buffer
+	rssXML.WriteString(`<?xml version="1.0" encoding="UTF-8" ?>`)
+	rssXML.WriteByte('\n')
+	baseURL := "https://" + tree.Domain + "/"
+	feed := NewHTMLElement("rss", map[string]string{
+		"version":    "2.0",
+		"xmlns:atom": "http://www.w3.org/2005/Atom",
+	})
+	channel := feed.AppendNew("channel")
+	title := tree.Domain
+	if tree.Root.Title != "" {
+		title = tree.Root.Title
+	}
+	channel.AppendNew("title").AppendText(title)
+	channel.AppendNew("description").AppendText(tree.Root.Description)
+	channel.AppendNew("link").AppendText(baseURL)
+	channel.AppendNew("copyright").AppendText(tree.Root.Copyright)
+	channel.AppendNew("lastBuildDate").AppendText(time.Now().Format(time.RFC1123Z))
+	pubDate, _ := tree.Root.getMostRecentDates()
+	channel.AppendNew("pubDate").AppendText(pubDate.Format(time.RFC1123Z))
+	channel.AppendNew("ttl").AppendText("60")
+	channel.AppendNew("atom:link", Href(baseURL+path), map[string]string{"rel": "self", "type": "application/rss+xml"}).SetSelfClosing(true)
+
+	items := make([]Listable, 0)
+	var dft func(*ConfigNode)
+	dft = func(node *ConfigNode) {
+		temp := node.MakeRSS()
+		if temp != nil {
+			items = append(items, temp...)
+		}
+		for _, child := range node.Children {
+			dft(child)
+		}
+	}
+	dft(tree.Root)
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].GetDate().After(items[j].GetDate())
+	})
+	for _, item := range items {
+		channel.Append(item.AsRSSItem())
+	}
+	RenderHTML(feed, &rssXML)
+	rssFile.Write(rssXML.Bytes())
 }

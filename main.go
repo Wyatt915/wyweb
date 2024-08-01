@@ -277,7 +277,7 @@ func main() {
 	go func() {
 		<-c
 		os.Remove(*sock)
-		os.Exit(1)
+		os.Exit(0)
 	}()
 	WyWebStart(*sock, *grp)
 }

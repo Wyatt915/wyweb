@@ -58,11 +58,12 @@ var voidElements = []string{
 }
 
 type HTMLElement struct {
-	Tag        string
-	Content    string
-	Attributes map[string]string
-	Children   []*HTMLElement
-	indent     bool
+	Tag         string
+	Content     string
+	Attributes  map[string]string
+	Children    []*HTMLElement
+	indent      bool
+	SelfClosing bool
 }
 
 func NewHTMLElement(tag string, attr ...map[string]string) *HTMLElement {
@@ -91,6 +92,10 @@ func NewHTMLElement(tag string, attr ...map[string]string) *HTMLElement {
 
 func (e *HTMLElement) NoIndent() {
 	e.indent = false
+}
+
+func (e *HTMLElement) SetSelfClosing(sc bool) {
+	e.SelfClosing = sc
 }
 
 func (e *HTMLElement) Append(elem *HTMLElement) {
@@ -178,12 +183,18 @@ func openTag(elem *HTMLElement, depth int) []byte {
 			out.WriteByte('"')
 		}
 	}
+	if elem.SelfClosing {
+		out.WriteString(" /")
+	}
 	if slices.Contains(voidElements, elem.Tag) {
 		out.WriteString(">\n")
 	} else if short, textlen := isShort(elem); short && textlen < 32 {
 		out.WriteByte('>')
 	} else {
 		out.WriteString(">\n")
+	}
+	if elem.SelfClosing {
+		out.WriteByte('\n')
 	}
 	return out.Bytes()
 }
@@ -235,7 +246,7 @@ func RenderHTML(root *HTMLElement, text *bytes.Buffer, opts ...int) {
 		RenderHTML(elem, text, depth+1, len(root.Children))
 	}
 	// void elements should not have a closing tag!
-	if !slices.Contains(voidElements, root.Tag) {
+	if !root.SelfClosing && (!slices.Contains(voidElements, root.Tag) || root.Content != "" || len(root.Children) > 0) {
 		text.Write(closeTag(root, depth))
 	}
 }
