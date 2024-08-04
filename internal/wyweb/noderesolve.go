@@ -276,9 +276,11 @@ func (node *ConfigNode) registerTags() {
 			}
 		}
 	case WWGALLERY:
-		for _, item := range node.Images {
-			for _, tag := range item.Tags {
-				regiserTag(tag, &item, &node.Tree.TagDB)
+		for _, img := range node.Images {
+			log.Println("GALLERY: ", img.Title)
+			for _, tag := range img.Tags {
+				regiserTag(tag, &img, &node.TagDB)
+				regiserTag(tag, &img, &node.Tree.TagDB)
 			}
 		}
 	}

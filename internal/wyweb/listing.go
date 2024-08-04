@@ -102,7 +102,7 @@ func postToListItem(post *ConfigNode) *HTMLElement {
 
 func galleryItemToListItem(item *RichImage) *HTMLElement {
 	listing := NewHTMLElement("div", Class("listing"))
-	link := listing.AppendNew("a", Href(item.Filename))
+	link := listing.AppendNew("a", Href(item.ParentPage.Path+"#"+item.GetIDb64()))
 	link.AppendNew("h2").AppendText(item.Title)
 	gl := listing.AppendNew("div", Class("gallery-listing"))
 	gl.AppendNew("div", Class("img-container")).AppendNew("a", Href(item.ParentPage.Path)).AppendNew(

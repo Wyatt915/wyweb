@@ -186,6 +186,9 @@ func (n *RichImage) GetDate() time.Time {
 }
 
 func (n *RichImage) GetID() uint64 {
+	if n.id == 0 {
+		n.SetID()
+	}
 	return n.id
 }
 
@@ -214,7 +217,7 @@ func (n *RichImage) SetID() {
 
 func (n *RichImage) GetIDb64() string {
 	bs := make([]byte, 8)
-	binary.LittleEndian.PutUint64(bs, n.id)
+	binary.LittleEndian.PutUint64(bs, n.GetID())
 	return base64.RawURLEncoding.EncodeToString(bs)
 }
 
