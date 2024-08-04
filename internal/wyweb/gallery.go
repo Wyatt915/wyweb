@@ -500,13 +500,12 @@ func BuildGallery(node *ConfigNode) error {
 		for _, pair := range col {
 			attr := map[string]string{
 				"src":            pair.Thumb,
-				"id":             fmt.Sprintf("imgseq-%d", imageNum),
 				"data-image-num": strconv.Itoa(imageNum),
 				"data-fullsize":  pair.Full,
 				"loading":        "lazy",
 			}
 			if img, ok := richImages[filepath.Base(pair.Full)]; ok {
-				attr["data-rich-image-info"] = img.GetIDb64()
+				attr["id"] = img.GetIDb64()
 				attr["alt"] = img.Alt
 			}
 			galleryCol.AppendNew("img", Class("gallery-image"), attr)

@@ -36,6 +36,7 @@ package wyweb
 import (
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"html"
 	"log"
@@ -154,12 +155,30 @@ type RichImage struct {
 	Artist      string      `yaml:"artist,omitempty" json:"artist,omitempty"`
 	Date        time.Time   `yaml:"date,omitempty" json:"date,omitempty"`
 	Description string      `yaml:"description,omitempty" json:"description,omitempty"`
-	Filename    string      `yaml:"filename,omitempty" json:"filename,omitempty"`
+	Filename    string      `yaml:"filename,omitempty" json:"-"`
 	Location    string      `yaml:"location,omitempty" json:"location,omitempty"`
 	Medium      string      `yaml:"medium,omitempty" json:"medium,omitempty"`
 	Title       string      `yaml:"title,omitempty" json:"title,omitempty"`
 	Tags        []string    `yaml:"tags,omitempty" json:"tags,omitempty"`
 	ParentPage  *ConfigNode `json:"-"`
+}
+
+func (m RichImage) MarshalJSON() ([]byte, error) {
+	type Alias RichImage
+	if m.Date.IsZero() {
+		return json.Marshal(&struct {
+			Date *time.Time `json:"date,omitempty"`
+			*Alias
+		}{
+			Date:  nil,
+			Alias: (*Alias)(&m),
+		})
+	}
+	return json.Marshal(&struct {
+		*Alias
+	}{
+		Alias: (*Alias)(&m),
+	})
 }
 
 func (n *RichImage) GetDate() time.Time {
