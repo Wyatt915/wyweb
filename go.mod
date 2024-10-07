@@ -8,7 +8,7 @@ require (
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	github.com/yuin/goldmark-meta v1.1.0
 	go.abhg.dev/goldmark/toc v0.10.0
-	golang.org/x/image v0.18.0
+	golang.org/x/image v0.21.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
